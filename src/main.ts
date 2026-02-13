@@ -768,9 +768,13 @@ async function generateAnswer(question: string, queryData: any[]): Promise<strin
   const dataForAI = queryData.map(item => {
     const title = item['商品标题'] || item[FIELD_NAMES.title] || 'N/A';
     const titleStr = typeof title === 'string' ? title : String(title || 'N/A');
+    // 确保 titleStr 是字符串且长度大于0
+    const safeTitle = titleStr && typeof titleStr === 'string' && titleStr.length > 0 
+      ? titleStr.substring(0, 100) 
+      : 'N/A';
     return {
       ASIN: item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A',
-      商品标题: titleStr.substring(0, 100),
+      商品标题: safeTitle,
       需求趋势得分: item['需求趋势得分'] || item[FIELD_NAMES.demand] || 0,
       竞争强度得分: item['竞争强度得分'] || item[FIELD_NAMES.competition] || 0,
       利润空间得分: item['利润空间得分'] || item[FIELD_NAMES.profit] || 0,

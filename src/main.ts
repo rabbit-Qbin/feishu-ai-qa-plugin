@@ -369,11 +369,31 @@ async function loadTableInfoFromTable(table: any): Promise<any> {
   };
 }
 
-// 提取值
+// 提取值（参考气泡图的实现）
 function extractValue(val: any): any {
   if (Array.isArray(val) && val.length > 0) return val[0];
   if (val && typeof val === 'object' && 'text' in val) return val.text;
   return val;
+}
+
+// 转换为数字（参考气泡图的实现）
+function toNumber(val: any): number | undefined {
+  const extracted = extractValue(val);
+  if (typeof extracted === 'number') return extracted;
+  if (typeof extracted === 'string') {
+    const parsed = parseFloat(extracted);
+    return isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
+}
+
+// 转换为文本（参考气泡图的实现，用于安全处理商品标题等文本字段）
+function toText(val: any): string {
+  const extracted = extractValue(val);
+  if (typeof extracted === 'string') return extracted;
+  if (typeof extracted === 'number') return String(extracted);
+  if (extracted && typeof extracted === 'object' && 'text' in extracted) return extracted.text;
+  return String(extracted || '');
 }
 
 // 渲染问答面板
@@ -430,7 +450,8 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   });
   
   questionInput.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && e.ctrlKey) {
+    // 按 Enter 直接发送（不按 Shift 时）
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const question = questionInput.value.trim();
       if (question) {
@@ -449,13 +470,34 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   });
 }
 
+// 全局变量：用于中断请求
+let currentAbortController: AbortController | null = null;
+let isAsking = false;
+
 // 调用 AI API
 async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) {
   const askBtn = document.getElementById('ask-btn') as HTMLButtonElement;
   const questionInput = document.getElementById('question-input') as HTMLTextAreaElement;
   
-  askBtn.disabled = true;
-  askBtn.textContent = '分析中...';
+  // 如果正在执行，先中断
+  if (isAsking && currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+    isAsking = false;
+    askBtn.disabled = false;
+    askBtn.textContent = '提问';
+    updateMessage(historyDiv, `answer-${Date.now()}`, '❌ 已中断');
+    return;
+  }
+  
+  // 创建新的 AbortController
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+  isAsking = true;
+  
+  askBtn.disabled = false; // 允许点击中断
+  askBtn.textContent = '中断';
+  askBtn.style.background = '#de350b'; // 红色表示可以中断
   
   addMessageToHistory(historyDiv, 'user', question);
   
@@ -463,34 +505,71 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
   addMessageToHistory(historyDiv, 'ai', '正在分析问题...', answerId);
   
   try {
+    // 检查是否被中断
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
+    }
+    
     // 第一步：意图识别，判断是否需要查询数据
     updateMessage(historyDiv, answerId, '🤖 正在分析问题意图...');
-    const intent = await analyzeIntent(question, tableInfo);
+    const intent = await analyzeIntent(question, tableInfo, signal);
+    
+    // 检查是否被中断
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
+    }
     
     console.log('📋 意图识别结果:', intent);
     
     if (!intent.needData) {
       // 不需要查询数据，直接回复
       updateMessage(historyDiv, answerId, '💡 正在生成回复...');
-      const answer = await generateDirectAnswer(question, tableInfo);
+      const answer = await generateDirectAnswer(question, tableInfo, signal);
+      
+      // 检查是否被中断
+      if (signal.aborted) {
+        updateMessage(historyDiv, answerId, '❌ 已中断');
+        return;
+      }
+      
       updateMessage(historyDiv, answerId, answer);
       questionInput.value = '';
       return;
     }
     
     // 需要查询数据，执行查询计划
-    updateMessage(historyDiv, answerId, '📊 正在分析并获取数据...');
-    const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo);
+    updateMessage(historyDiv, answerId, '📊 正在分析查询计划...');
+    const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo, signal);
+    
+    // 检查是否被中断
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
+    }
     
     console.log('📋 AI 查询计划:', queryPlan);
     
     updateMessage(historyDiv, answerId, '📊 正在获取数据...');
     const queryData = await executeQueryPlan(queryPlan, tableInfo);
     
+    // 检查是否被中断
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
+    }
+    
     console.log(`✅ 查询完成，获取 ${queryData.length} 条数据`);
     
     updateMessage(historyDiv, answerId, '💡 正在基于数据生成分析...');
-    const answer = await generateAnswer(question, queryData);
+    const answer = await generateAnswer(question, queryData, signal);
+    
+    // 检查是否被中断
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
+    }
     
     updateMessage(historyDiv, answerId, answer);
     questionInput.value = '';
@@ -505,7 +584,7 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
 }
 
 // 第一步：意图识别，判断是否需要查询数据
-async function analyzeIntent(question: string, tableInfo: any): Promise<{needData: boolean, reason: string}> {
+async function analyzeIntent(question: string, tableInfo: any, signal?: AbortSignal): Promise<{needData: boolean, reason: string}> {
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
   
   const prompt = `你是一个专业的亚马逊选品分析师助手。你的职责是帮助用户分析"选品结果表"的数据。
@@ -579,7 +658,7 @@ ${question}
 }
 
 // 直接回答（不需要查询数据）
-async function generateDirectAnswer(question: string, tableInfo: any): Promise<string> {
+async function generateDirectAnswer(question: string, tableInfo: any, signal?: AbortSignal): Promise<string> {
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '';
   
   const prompt = `你是一个专业的亚马逊选品分析师，擅长基于多维表格数据进行产品选品分析和市场洞察。
@@ -610,7 +689,7 @@ ${question}
 }
 
 // 第二阶段：分析问题并制定查询计划
-async function analyzeQuestionAndPlanQuery(question: string, tableInfo: any): Promise<any> {
+async function analyzeQuestionAndPlanQuery(question: string, tableInfo: any, signal?: AbortSignal): Promise<any> {
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '';
   
   const prompt = `你是一个数据查询规划助手。用户想要分析"选品结果表"的数据。
@@ -715,21 +794,9 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
               try {
                 const cell = await record.getCellByField(fieldId);
                 const value = await cell.getValue();
-                // 对于商品标题字段，确保提取的值是字符串
+                // 对于商品标题字段，使用 toText 安全处理
                 if (fieldName === '商品标题' || fieldName === FIELD_NAMES.title) {
-                  const extracted = extractValue(value);
-                  // 如果提取的值不是字符串，转换为字符串
-                  if (extracted != null && typeof extracted !== 'string') {
-                    if (Array.isArray(extracted) && extracted.length > 0) {
-                      values[fieldName] = String(extracted[0]);
-                    } else if (typeof extracted === 'object') {
-                      values[fieldName] = (extracted as any).text || String(extracted) || 'N/A';
-                    } else {
-                      values[fieldName] = String(extracted);
-                    }
-                  } else {
-                    values[fieldName] = extracted || 'N/A';
-                  }
+                  values[fieldName] = toText(value) || 'N/A';
                 } else {
                   values[fieldName] = extractValue(value);
                 }
@@ -788,38 +855,14 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
 }
 
 // 第三阶段：生成回答
-async function generateAnswer(question: string, queryData: any[]): Promise<string> {
+async function generateAnswer(question: string, queryData: any[], signal?: AbortSignal): Promise<string> {
   const dataForAI = queryData.map(item => {
-    // 安全地处理商品标题
-    let title: any = item['商品标题'] || item[FIELD_NAMES.title];
-    
-    // 如果 title 是 null 或 undefined，设为 'N/A'
-    if (title == null) {
-      title = 'N/A';
-    }
-    
-    // 确保 title 是字符串类型
-    let titleStr: string;
-    if (typeof title === 'string') {
-      titleStr = title;
-    } else if (typeof title === 'number') {
-      titleStr = String(title);
-    } else if (Array.isArray(title)) {
-      titleStr = title.length > 0 ? String(title[0]) : 'N/A';
-    } else if (typeof title === 'object' && title !== null) {
-      // 如果是对象，尝试提取 text 属性
-      titleStr = (title as any).text || String(title) || 'N/A';
-    } else {
-      titleStr = String(title);
-    }
-    
-    // 确保 titleStr 是有效的字符串，然后截取
-    const safeTitle = (titleStr && typeof titleStr === 'string' && titleStr.length > 0 && titleStr !== 'null' && titleStr !== 'undefined')
-      ? titleStr.substring(0, 100)
-      : 'N/A';
+    // 使用 toText 安全处理商品标题（参考气泡图的实现）
+    const title = toText(item['商品标题'] || item[FIELD_NAMES.title] || 'N/A');
+    const safeTitle = title && title.length > 0 ? title.substring(0, 100) : 'N/A';
     
     return {
-      ASIN: item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A',
+      ASIN: toText(item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A'),
       商品标题: safeTitle,
       需求趋势得分: item['需求趋势得分'] || item[FIELD_NAMES.demand] || 0,
       竞争强度得分: item['竞争强度得分'] || item[FIELD_NAMES.competition] || 0,
@@ -889,10 +932,23 @@ ${question}`;
 }
 
 // 调用 Moonshot (Kimi) API
-async function callMoonshotAPI(prompt: string): Promise<string> {
+async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<string> {
   try {
     console.log('📡 调用 Moonshot API:', MOONSHOT_API_URL);
     console.log('📡 模型:', MOONSHOT_MODEL);
+    
+    // 创建超时控制器
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), 60000); // 60秒超时
+    
+    // 合并信号：如果传入的 signal 被中断，或者超时，都中断请求
+    const combinedSignal = signal || timeoutController.signal;
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        timeoutController.abort();
+        clearTimeout(timeoutId);
+      });
+    }
     
     const response = await fetch(MOONSHOT_API_URL, {
       method: 'POST',
@@ -912,13 +968,10 @@ async function callMoonshotAPI(prompt: string): Promise<string> {
         temperature: 0.7,
         max_tokens: 2000
       }),
-      // 添加超时处理（使用 AbortController）
-      signal: (() => {
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(), 60000); // 60秒超时
-        return controller.signal;
-      })()
+      signal: combinedSignal
     });
+    
+    clearTimeout(timeoutId);
     
     console.log('📡 API 响应状态:', response.status, response.statusText);
     

@@ -506,22 +506,28 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
 
 // 第一步：意图识别，判断是否需要查询数据
 async function analyzeIntent(question: string, tableInfo: any): Promise<{needData: boolean, reason: string}> {
-  const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
-  
-  // 简单的关键词匹配，优先判断
+  // 先做简单的关键词匹配，作为兜底
   const lowerQuestion = question.toLowerCase().trim();
-  const greetingKeywords = ['你好', 'hello', 'hi', 'hey', '您好', '在吗', '在', 'help', '帮助', '功能', '怎么用', '如何使用'];
+  const greetingKeywords = ['你好', 'hello', 'hi', 'hey', '您好', '在吗', '在', 'help', '帮助', '功能', '怎么用', '如何使用', '你能做什么'];
   const isGreeting = greetingKeywords.some(keyword => lowerQuestion.includes(keyword.toLowerCase()));
   
-  if (isGreeting && lowerQuestion.length < 20) {
-    console.log('✅ 检测到打招呼，不需要查询数据');
+  if (isGreeting && lowerQuestion.length < 30) {
+    console.log('✅ 关键词匹配：检测到打招呼，不需要查询数据');
     return {
       needData: false,
-      reason: '检测到打招呼或询问功能'
+      reason: '关键词匹配：打招呼或询问功能'
     };
   }
   
+  const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
+  
   const prompt = `你是一个专业的亚马逊选品分析师助手。用户可能会问你关于选品的问题。
+
+【可用数据】
+表名：选品结果表
+总记录数：${tableInfo.totalCount}
+可用字段：
+${fieldInfoStr}
 
 【用户问题】
 ${question}
@@ -529,11 +535,9 @@ ${question}
 【任务】
 判断用户的问题是否需要查询具体的数据记录来回答。
 
-**重要：如果用户只是打招呼（如：你好、hello、hi、您好）或询问功能，必须返回 needData: false**
-
 如果问题属于以下情况，则不需要查询数据（needData: false）：
-1. 打招呼、问候（如：你好、hello、hi、您好、在吗）
-2. 询问插件功能、如何使用（如：你能做什么、怎么用、功能是什么）
+1. 打招呼、问候（如：你好、hello、hi）
+2. 询问插件功能、如何使用
 3. 询问概念性问题（如：什么是综合得分、什么是BSR）
 4. 询问一般性建议（不涉及具体数据）
 5. 闲聊、非业务问题
@@ -544,13 +548,13 @@ ${question}
 3. 要求统计信息（如：有多少个产品是稳健产品）
 4. 要求对比分析（如：对比不同分类的产品）
 
-**必须严格按照上述规则判断，打招呼必须返回 needData: false**
-
-返回 JSON 格式（只返回JSON，不要其他文字）：
+返回 JSON 格式：
 {
-  "needData": false,
-  "reason": "用户打招呼"
-}`;
+  "needData": true/false,
+  "reason": "判断理由"
+}
+
+只返回 JSON 对象，不要其他文字。`;
 
   const response = await callMoonshotAPI(prompt);
   
@@ -570,7 +574,7 @@ ${question}
     const greetingKeywords = ['你好', 'hello', 'hi', 'hey', '您好', '在吗', '在'];
     const isGreeting = greetingKeywords.some(keyword => lowerQuestion.includes(keyword.toLowerCase()));
     
-    if (isGreeting && lowerQuestion.length < 20) {
+    if (isGreeting && lowerQuestion.length < 30) {
       return {
         needData: false,
         reason: '关键词匹配：打招呼'

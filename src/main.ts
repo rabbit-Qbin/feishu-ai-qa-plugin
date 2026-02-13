@@ -16,6 +16,9 @@ const ZAI_API_KEY = '836a7db496194bc9a85633c57ac4a96d.CE60TsCoQF3eIv7D';
 const ZAI_API_URL = 'https://api.zai.dev/v1/chat/completions';
 const ZAI_MODEL = 'zai/glm-4.7';
 
+// 目标表名
+const TARGET_TABLE_NAME = '选品结果';
+
 // 主初始化函数（按照官方文档要求）
 async function init() {
   const app = document.getElementById('app')!;
@@ -45,7 +48,7 @@ async function init() {
   }
 }
 
-// Create/Config 状态：显示配置界面（按照官方文档要求）
+// Create/Config 状态：显示配置界面（自动查找"选品结果"表）
 async function renderCreateConfigState(app: HTMLElement) {
   app.innerHTML = `
     <div style="display: flex; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
@@ -53,7 +56,7 @@ async function renderCreateConfigState(app: HTMLElement) {
       <div style="flex: 1; padding: 24px; overflow: auto; background: #fafbfc;">
         <div id="preview-area" style="background: white; border-radius: 8px; padding: 20px; min-height: 400px;">
           <div id="status" style="padding: 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 13px; margin-bottom: 16px;">
-            ⏳ 请先选择多维表格和数据表
+            ⏳ 正在自动查找"选品结果"表...
           </div>
           <div id="qa-preview"></div>
         </div>
@@ -61,77 +64,97 @@ async function renderCreateConfigState(app: HTMLElement) {
       
       <!-- 右侧配置区（固定340px，底部预留70px） -->
       <div style="width: 340px; background: white; border-left: 1px solid #dfe1e6; padding: 24px; overflow-y: auto; padding-bottom: 70px;">
-        <h3 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #172b4d;">配置选项</h3>
+        <h3 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #172b4d;">配置信息</h3>
         
-        <!-- 多维表格选择器（必须） -->
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; font-size: 13px; font-weight: 600; color: #172b4d; margin-bottom: 8px;">多维表格</label>
-          <select id="base-selector" style="width: 100%; padding: 8px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px;">
-            <option value="">请选择多维表格...</option>
-          </select>
-        </div>
-        
-        <!-- 数据表选择器 -->
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; font-size: 13px; font-weight: 600; color: #172b4d; margin-bottom: 8px;">数据表</label>
-          <select id="table-selector" style="width: 100%; padding: 8px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px;" disabled>
-            <option value="">请先选择多维表格</option>
-          </select>
+        <div style="margin-bottom: 20px; padding: 12px; background: #f4f5f7; border-radius: 4px;">
+          <div style="font-size: 13px; color: #5e6c84; margin-bottom: 8px;">数据表</div>
+          <div id="table-info" style="font-size: 14px; color: #172b4d; font-weight: 500;">正在查找...</div>
         </div>
         
         <!-- 确定按钮（固定在底部） -->
-        <button id="save-btn" style="position: fixed; bottom: 0; right: 0; width: 340px; padding: 16px; font-size: 14px; font-weight: 600; background: #0052cc; color: white; border: none; cursor: pointer;">
+        <button id="save-btn" style="position: fixed; bottom: 0; right: 0; width: 340px; padding: 16px; font-size: 14px; font-weight: 600; background: #0052cc; color: white; border: none; cursor: pointer; disabled: true;">
           确定
         </button>
       </div>
     </div>
   `;
   
-  // 初始化多维表格选择器
-  await initBaseSelector();
+  // 自动查找"选品结果"表
+  await autoFindTable();
   
-  // 绑定事件
-  const baseSelector = document.getElementById('base-selector') as HTMLSelectElement;
-  const tableSelector = document.getElementById('table-selector') as HTMLSelectElement;
+  // 绑定保存按钮
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
-  
-  baseSelector.addEventListener('change', async () => {
-    const baseToken = baseSelector.value;
-    if (baseToken) {
-      await loadTablesForBase(baseToken, tableSelector);
-      // 自动选择"选品结果"表
-      const option = Array.from(tableSelector.options).find(opt => opt.text.includes('选品结果'));
-      if (option) {
-        tableSelector.value = option.value;
-        await updatePreview();
-      }
-    } else {
-      tableSelector.innerHTML = '<option value="">请先选择多维表格</option>';
-      tableSelector.disabled = true;
-    }
-  });
-  
-  tableSelector.addEventListener('change', async () => {
-    await updatePreview();
-  });
-  
   saveBtn.addEventListener('click', async () => {
     await saveConfig();
   });
+}
+
+// 自动查找"选品结果"表
+async function autoFindTable() {
+  const status = document.getElementById('status')!;
+  const tableInfo = document.getElementById('table-info')!;
+  const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   
-  // 尝试加载已保存的配置
   try {
-    const config: any = await dashboard.getConfig();
-    if (config?.dataConditions?.[0]?.baseToken) {
-      baseSelector.value = config.dataConditions[0].baseToken;
-      await loadTablesForBase(config.dataConditions[0].baseToken, tableSelector);
-      if (config.dataConditions[0].tableId) {
-        tableSelector.value = config.dataConditions[0].tableId;
-        await updatePreview();
+    status.textContent = '⏳ 正在查找"选品结果"表...';
+    
+    // 获取所有多维表格
+    const baseList = await workspace.getBaseList({});
+    
+    // 遍历所有多维表格，查找"选品结果"表
+    for (const base of baseList.base_list) {
+      try {
+        const bitableApp = await workspace.getBitable(base.token);
+        if (!bitableApp) continue;
+        
+        const tableList = await bitableApp.base.getTableList();
+        
+        for (const table of tableList) {
+          const tableName = await table.getName();
+          if (tableName.includes(TARGET_TABLE_NAME)) {
+            // 找到目标表
+            const tableInfoData = await loadTableInfoFromTable(table);
+            
+            status.textContent = `✅ 已找到"选品结果"表（${tableInfoData.totalCount} 条记录）`;
+            status.style.background = '#e3fcef';
+            status.style.color = '#006644';
+            
+            tableInfo.textContent = `${base.name} > ${tableName}`;
+            
+            // 保存找到的表信息到全局变量
+            (window as any).__foundTableInfo = {
+              baseToken: base.token,
+              tableId: table.id,
+              table: table,
+              tableInfo: tableInfoData
+            };
+            
+            // 渲染预览
+            const qaPreview = document.getElementById('qa-preview')!;
+            renderQAPanel(tableInfoData, qaPreview);
+            
+            saveBtn.disabled = false;
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn(`查找多维表格 ${base.name} 失败:`, e);
+        continue;
       }
     }
-  } catch (e) {
-    // Create 状态下 getConfig 会报错，忽略
+    
+    // 没找到
+    status.textContent = `❌ 未找到"选品结果"表，请确保表中包含该表`;
+    status.style.background = '#ffebee';
+    status.style.color = '#de350b';
+    tableInfo.textContent = '未找到';
+    
+  } catch (error: any) {
+    console.error('自动查找表失败:', error);
+    status.textContent = `❌ 查找失败: ${error?.message || error}`;
+    status.style.background = '#ffebee';
+    status.style.color = '#de350b';
+    tableInfo.textContent = '查找失败';
   }
 }
 
@@ -185,113 +208,16 @@ async function renderViewState(app: HTMLElement) {
   }
 }
 
-// 初始化多维表格选择器
-async function initBaseSelector() {
-  const baseSelector = document.getElementById('base-selector') as HTMLSelectElement;
-  
-  try {
-    const baseList = await workspace.getBaseList({});
-    baseList.base_list.forEach((base: any) => {
-      const option = document.createElement('option');
-      option.value = base.token;
-      option.textContent = base.name;
-      baseSelector.appendChild(option);
-    });
-  } catch (error: any) {
-    console.error('获取多维表格列表失败:', error);
-  }
-}
-
-// 加载指定多维表格的数据表列表
-async function loadTablesForBase(baseToken: string, tableSelector: HTMLSelectElement) {
-  tableSelector.innerHTML = '<option value="">加载中...</option>';
-  tableSelector.disabled = true;
-  
-  try {
-    const bitableApp = await workspace.getBitable(baseToken);
-    if (!bitableApp) {
-      throw new Error('无法获取多维表格实例');
-    }
-    
-    const tableList = await bitableApp.base.getTableList();
-    tableSelector.innerHTML = '<option value="">请选择数据表...</option>';
-    
-    for (const table of tableList) {
-      const tableName = await table.getName();
-      const option = document.createElement('option');
-      option.value = table.id;
-      option.textContent = tableName;
-      tableSelector.appendChild(option);
-    }
-    
-    tableSelector.disabled = false;
-  } catch (error: any) {
-    console.error('加载数据表列表失败:', error);
-    tableSelector.innerHTML = '<option value="">加载失败</option>';
-  }
-}
-
-// 更新预览（使用 getPreviewData）
-async function updatePreview() {
-  const baseSelector = document.getElementById('base-selector') as HTMLSelectElement;
-  const tableSelector = document.getElementById('table-selector') as HTMLSelectElement;
-  const status = document.getElementById('status')!;
-  const qaPreview = document.getElementById('qa-preview')!;
-  
-  const baseToken = baseSelector.value;
-  const tableId = tableSelector.value;
-  
-  if (!baseToken || !tableId) {
-    return;
-  }
-  
-  status.textContent = '⏳ 正在加载预览数据...';
-  qaPreview.innerHTML = '';
-  
-  try {
-    // 使用 getPreviewData（官方文档要求）
-    const dataConditions = [{
-      baseToken,
-      tableId
-    }];
-    
-    const previewData = await dashboard.getPreviewData(dataConditions);
-    console.log('📊 getPreviewData 返回:', previewData);
-    
-    // 由于 getPreviewData 可能只返回聚合数据，我们需要通过 workspace 获取原始数据
-    const bitableApp = await workspace.getBitable(baseToken);
-    if (!bitableApp) {
-      throw new Error('无法获取多维表格实例');
-    }
-    
-    const table = await bitableApp.base.getTableById(tableId);
-    const tableInfo = await loadTableInfoFromTable(table);
-    
-    renderQAPanel(tableInfo, qaPreview);
-    status.textContent = `✅ 已连接：${tableInfo.totalCount} 条记录`;
-    status.style.background = '#e3fcef';
-    status.style.color = '#006644';
-    
-  } catch (error: any) {
-    console.error('预览加载失败:', error);
-    status.textContent = `❌ 预览失败: ${error?.message || error}`;
-    status.style.background = '#ffebee';
-    status.style.color = '#de350b';
-  }
-}
 
 // 保存配置（必须保存 dataConditions）
 async function saveConfig() {
-  const baseSelector = document.getElementById('base-selector') as HTMLSelectElement;
-  const tableSelector = document.getElementById('table-selector') as HTMLSelectElement;
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const status = document.getElementById('status')!;
   
-  const baseToken = baseSelector.value;
-  const tableId = tableSelector.value;
+  const foundTableInfo = (window as any).__foundTableInfo;
   
-  if (!baseToken || !tableId) {
-    alert('请先选择多维表格和数据表');
+  if (!foundTableInfo || !foundTableInfo.baseToken || !foundTableInfo.tableId) {
+    alert('请先找到"选品结果"表');
     return;
   }
   
@@ -302,8 +228,8 @@ async function saveConfig() {
   try {
     // 构建 dataConditions（必须包含 baseToken 和 tableId）
     const dataConditions = [{
-      baseToken,
-      tableId
+      baseToken: foundTableInfo.baseToken,
+      tableId: foundTableInfo.tableId
     }];
     
     console.log('💾 保存 dataConditions:', JSON.stringify(dataConditions, null, 2));
@@ -442,10 +368,7 @@ function extractValue(val: any): any {
 function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <h2 style="color: #172b4d; margin: 0 0 8px 0; font-size: 18px;">AI 智能问答（智能体模式）</h2>
-        <p style="color: #5e6c84; margin: 0; font-size: 13px;">已连接选品结果表（约 ${tableInfo.totalCount} 条记录），AI 将根据问题动态读取数据</p>
-      </div>
+      <h1 style="color: #172b4d; margin: 0 0 24px 0; font-size: 24px; font-weight: 600; text-align: center;">AI 选品算命</h1>
       
       <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
         <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 16px; padding: 16px; background: #fafbfc; border-radius: 4px; min-height: 200px;">
@@ -792,11 +715,15 @@ ${question}`;
 // 调用 ZAI GLM API
 async function callZAIAPI(prompt: string): Promise<string> {
   try {
+    console.log('📡 调用 ZAI API:', ZAI_API_URL);
+    console.log('📡 模型:', ZAI_MODEL);
+    
     const response = await fetch(ZAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ZAI_API_KEY}`
+        'Authorization': `Bearer ${ZAI_API_KEY}`,
+        'Accept': 'application/json'
       },
       body: JSON.stringify({
         model: ZAI_MODEL,
@@ -808,15 +735,26 @@ async function callZAIAPI(prompt: string): Promise<string> {
         ],
         temperature: 0.7,
         max_tokens: 2000
-      })
+      }),
+      // 添加超时处理（使用 AbortController）
+      signal: (() => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 60000); // 60秒超时
+        return controller.signal;
+      })()
     });
+    
+    console.log('📡 API 响应状态:', response.status, response.statusText);
     
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API 调用失败: ${response.status} ${errorText}`);
+      console.error('📡 API 错误响应:', errorText);
+      throw new Error(`API 调用失败: ${response.status} ${response.statusText} - ${errorText}`);
     }
     
     const result = await response.json();
+    console.log('📡 API 响应数据:', result);
+    
     const answer = result.choices?.[0]?.message?.content || '无法生成回答';
     
     if (!answer || answer === '无法生成回答') {
@@ -826,7 +764,15 @@ async function callZAIAPI(prompt: string): Promise<string> {
     return answer;
   } catch (error: any) {
     console.error('ZAI API 调用失败:', error);
-    throw error;
+    
+    // 提供更详细的错误信息
+    if (error.name === 'AbortError') {
+      throw new Error('API 调用超时，请稍后重试');
+    } else if (error.message?.includes('Failed to fetch') || error.message?.includes('ERR_CONNECTION_CLOSED')) {
+      throw new Error('网络连接失败，请检查网络或 API 服务是否可用');
+    } else {
+      throw new Error(`API 调用失败: ${error?.message || error}`);
+    }
   }
 }
 

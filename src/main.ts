@@ -376,7 +376,8 @@ function extractValue(val: any): any {
   return val;
 }
 
-// 转换为数字（参考气泡图的实现）
+// 转换为数字（参考气泡图的实现，保留以备将来使用）
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function toNumber(val: any): number | undefined {
   const extracted = extractValue(val);
   if (typeof extracted === 'number') return extracted;
@@ -685,7 +686,7 @@ ${question}
 - **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助您分析选品数据的AI助手。我可以帮您分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉我您想了解选品数据的哪些方面？"
 - 如果用户询问功能，可以提示："我可以帮您分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉我您想了解什么？"`;
 
-  return await callMoonshotAPI(prompt);
+  return await callMoonshotAPI(prompt, signal);
 }
 
 // 第二阶段：分析问题并制定查询计划
@@ -723,7 +724,7 @@ ${question}
 
 只返回 JSON 对象，不要其他文字。`;
 
-  const response = await callMoonshotAPI(prompt);
+  const response = await callMoonshotAPI(prompt, signal);
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
@@ -928,7 +929,7 @@ ${JSON.stringify(dataForAI, null, 2)}
 【用户问题】
 ${question}`;
 
-  return await callMoonshotAPI(prompt);
+  return await callMoonshotAPI(prompt, signal);
 }
 
 // 调用 Moonshot (Kimi) API

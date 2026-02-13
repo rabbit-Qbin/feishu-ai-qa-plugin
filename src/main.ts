@@ -413,7 +413,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
         <div style="display: flex; gap: 8px;">
           <textarea 
             id="question-input" 
-            placeholder="输入您的问题，例如：推荐综合得分最高的10个产品..."
+            placeholder="输入用户的问题，例如：推荐综合得分最高的10个产品..."
             style="flex: 1; padding: 12px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px; resize: none; min-height: 60px; font-family: inherit;"
           ></textarea>
           <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -683,8 +683,8 @@ ${question}
 
 【输出要求】
 - 直接输出回答，不需要额外的格式说明
-- **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助您分析选品数据的AI助手。我可以帮您分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉我您想了解选品数据的哪些方面？"
-- 如果用户询问功能，可以提示："我可以帮您分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉我您想了解什么？"`;
+- **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助用户分析选品数据的AI助手。我可以帮用户分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉用户想了解选品数据的哪些方面？"
+- 如果用户询问功能，可以提示："我可以帮用户分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉用户想了解什么？"`;
 
   return await callMoonshotAPI(prompt, signal);
 }
@@ -1022,7 +1022,7 @@ function addMessageToHistory(historyDiv: HTMLElement, role: 'user' | 'ai', conte
   
   messageDiv.innerHTML = `
     <div style="font-size: 13px; color: #5e6c84; margin-bottom: 4px;">
-      ${role === 'user' ? '👤 您' : '🤖 AI'}
+      ${role === 'user' ? '👤 用户' : '🤖 AI'}
     </div>
     <div style="font-size: 14px; color: #172b4d; line-height: 1.6; white-space: pre-wrap;">
       ${content}

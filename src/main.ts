@@ -376,10 +376,10 @@ function extractValue(val: any): any {
   return val;
 }
 
-// 转换为数字（参考气泡图的实现，保留以备将来使用）
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function toNumber(val: any): number | undefined {
-  const extracted = extractValue(val);
+// 转换为数字（参考气泡图的实现，目前未使用但保留以备将来使用）
+// @ts-ignore - 保留以备将来使用
+function toNumber(_val: any): number | undefined {
+  const extracted = extractValue(_val);
   if (typeof extracted === 'number') return extracted;
   if (typeof extracted === 'string') {
     const parsed = parseFloat(extracted);

@@ -153,6 +153,10 @@ body {
   font-size: 14px;
   opacity: 0.9;
   margin: 0;
+  line-height: 1.5;
+  /* 确保文本居中对齐 */
+  display: flex;
+  align-items: center;
 }
 
 /* 聊天历史区域 */
@@ -237,7 +241,9 @@ body {
 .user-message .message-content {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  margin-left: 60px;
+  /* 🔥 减小左边距，让用户消息不那么肥大 */
+  margin-left: 80px;
+  max-width: calc(100% - 80px);
 }
 
 .ai-message .message-content {
@@ -396,7 +402,8 @@ body {
   }
 
   .user-message .message-content {
-    margin-left: 40px;
+    margin-left: 20px;
+    max-width: calc(100% - 20px);
   }
 
   .input-area {

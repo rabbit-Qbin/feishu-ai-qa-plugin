@@ -453,11 +453,11 @@ function toText(val: any): string {
 function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <h1 style="color: #172b4d; margin: 0 0 24px 0; font-size: 24px; font-weight: 600; text-align: center;">AI 选品算命</h1>
+      <h1 style="color: #172b4d; margin: 0 0 8px 0; font-size: 24px; font-weight: 600; text-align: center;">AI 选品算命</h1>
       
       <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
         <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 16px; padding: 16px; background: #fafbfc; border-radius: 4px; min-height: 200px;">
-          <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px;">
+          <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
@@ -465,7 +465,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
         <div style="display: flex; gap: 8px;">
           <textarea 
             id="question-input" 
-            placeholder="请输入你的问题，例如：推荐综合得分最高的10个产品..."
+            placeholder="请输入你的问题，例如：推荐综合得分最高的10个产品……"
             style="flex: 1; padding: 12px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px; resize: none; min-height: 60px; font-family: inherit;"
           ></textarea>
           <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -516,7 +516,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   clearBtn.addEventListener('click', () => {
     questionInput.value = '';
     historyDiv.innerHTML = `
-      <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px;">
+      <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
         已连接选品结果表，AI 将根据问题动态读取数据
       </div>
     `;

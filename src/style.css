@@ -243,8 +243,8 @@ body {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   /* 🔥 减小左边距，让用户消息不那么肥大 */
-  margin-left: 80px;
-  max-width: calc(100% - 80px);
+  margin-left: 40px;
+  max-width: calc(100% - 40px);
 }
 
 .ai-message .message-content {
@@ -403,8 +403,8 @@ body {
   }
 
   .user-message .message-content {
-    margin-left: 20px;
-    max-width: calc(100% - 20px);
+    margin-left: 10px;
+    max-width: calc(100% - 10px);
   }
 
   .input-area {

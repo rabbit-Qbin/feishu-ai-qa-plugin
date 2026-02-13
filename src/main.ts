@@ -715,7 +715,24 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
               try {
                 const cell = await record.getCellByField(fieldId);
                 const value = await cell.getValue();
-                values[fieldName] = extractValue(value);
+                // 对于商品标题字段，确保提取的值是字符串
+                if (fieldName === '商品标题' || fieldName === FIELD_NAMES.title) {
+                  const extracted = extractValue(value);
+                  // 如果提取的值不是字符串，转换为字符串
+                  if (extracted != null && typeof extracted !== 'string') {
+                    if (Array.isArray(extracted) && extracted.length > 0) {
+                      values[fieldName] = String(extracted[0]);
+                    } else if (typeof extracted === 'object') {
+                      values[fieldName] = (extracted as any).text || String(extracted) || 'N/A';
+                    } else {
+                      values[fieldName] = String(extracted);
+                    }
+                  } else {
+                    values[fieldName] = extracted || 'N/A';
+                  }
+                } else {
+                  values[fieldName] = extractValue(value);
+                }
               } catch (e) {
                 values[fieldName] = null;
               }

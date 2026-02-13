@@ -11,10 +11,10 @@ const FIELD_NAMES = {
   category: '初步产品分类'
 };
 
-// ZAI GLM-4.7 API 配置
-const ZAI_API_KEY = '836a7db496194bc9a85633c57ac4a96d.CE60TsCoQF3eIv7D';
-const ZAI_API_URL = 'https://api.zai.dev/v1/chat/completions';
-const ZAI_MODEL = 'zai/glm-4.7';
+// Moonshot (Kimi) API 配置
+const MOONSHOT_API_KEY = 'sk-Ks0g9FuQKrIacdJn7oBMpRmY3FZNXx4rOYywdc0nfiu2HJui';
+const MOONSHOT_API_URL = 'https://api.moonshot.cn/v1/chat/completions';
+const MOONSHOT_MODEL = 'moonshot-v1-8k';
 
 // 目标表名
 const TARGET_TABLE_NAME = '选品结果';
@@ -515,7 +515,7 @@ ${question}
 
 只返回 JSON 对象，不要其他文字。`;
 
-  const response = await callZAIAPI(prompt);
+  const response = await callMoonshotAPI(prompt);
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
@@ -712,21 +712,21 @@ ${question}`;
   return await callZAIAPI(prompt);
 }
 
-// 调用 ZAI GLM API
-async function callZAIAPI(prompt: string): Promise<string> {
+// 调用 Moonshot (Kimi) API
+async function callMoonshotAPI(prompt: string): Promise<string> {
   try {
-    console.log('📡 调用 ZAI API:', ZAI_API_URL);
-    console.log('📡 模型:', ZAI_MODEL);
+    console.log('📡 调用 Moonshot API:', MOONSHOT_API_URL);
+    console.log('📡 模型:', MOONSHOT_MODEL);
     
-    const response = await fetch(ZAI_API_URL, {
+    const response = await fetch(MOONSHOT_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ZAI_API_KEY}`,
+        'Authorization': `Bearer ${MOONSHOT_API_KEY}`,
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        model: ZAI_MODEL,
+        model: MOONSHOT_MODEL,
         messages: [
           {
             role: 'user',
@@ -763,7 +763,7 @@ async function callZAIAPI(prompt: string): Promise<string> {
     
     return answer;
   } catch (error: any) {
-    console.error('ZAI API 调用失败:', error);
+    console.error('Moonshot API 调用失败:', error);
     
     // 提供更详细的错误信息
     if (error.name === 'AbortError') {

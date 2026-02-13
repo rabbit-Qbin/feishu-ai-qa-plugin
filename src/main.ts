@@ -373,7 +373,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
       <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
         <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 16px; padding: 16px; background: #fafbfc; border-radius: 4px; min-height: 200px;">
           <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px;">
-            开始提问，AI 将基于选品数据为您分析
+            已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
         
@@ -431,13 +431,13 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
     questionInput.value = '';
     historyDiv.innerHTML = `
       <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px;">
-        开始提问，AI 将基于选品数据为您分析
+        已连接选品结果表，AI 将根据问题动态读取数据
       </div>
     `;
   });
 }
 
-// 调用 AI API（智能体模式）
+// 调用 AI API
 async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) {
   const askBtn = document.getElementById('ask-btn') as HTMLButtonElement;
   const questionInput = document.getElementById('question-input') as HTMLTextAreaElement;

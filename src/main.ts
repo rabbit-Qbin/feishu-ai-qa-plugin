@@ -479,12 +479,12 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
     }
     
     // 需要查询数据，执行查询计划
-    updateMessage(historyDiv, answerId, '📊 正在读取数据...');
+    updateMessage(historyDiv, answerId, '📊 正在分析并获取数据...');
     const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo);
     
     console.log('📋 AI 查询计划:', queryPlan);
     
-    updateMessage(historyDiv, answerId, `📊 正在读取数据：${queryPlan.description || '按计划查询'}...`);
+    updateMessage(historyDiv, answerId, '📊 正在获取数据...');
     const queryData = await executeQueryPlan(queryPlan, tableInfo);
     
     console.log(`✅ 查询完成，获取 ${queryData.length} 条数据`);
@@ -660,7 +660,7 @@ ${question}
       description: '默认查询',
       sortField: '综合得分',
       sortOrder: 'desc',
-      limit: 100,
+      limit: 500, // 增加默认数据量
       filterCategory: null,
       minScore: null,
       maxScore: null,
@@ -695,7 +695,7 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
   const data: any[] = [];
   const batchSize = 50;
   
-  for (let i = 0; i < allRecords.length && (!plan.limit || data.length < plan.limit * 2); i += batchSize) {
+  for (let i = 0; i < allRecords.length && (!plan.limit || data.length < plan.limit * 1.5); i += batchSize) {
     const batch = allRecords.slice(i, i + batchSize);
     const batchData = await Promise.all(
       batch.map(async (record: any) => {

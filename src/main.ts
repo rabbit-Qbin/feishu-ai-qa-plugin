@@ -709,7 +709,7 @@ ${JSON.stringify(dataForAI, null, 2)}
 【用户问题】
 ${question}`;
 
-  return await callZAIAPI(prompt);
+  return await callMoonshotAPI(prompt);
 }
 
 // 调用 Moonshot (Kimi) API

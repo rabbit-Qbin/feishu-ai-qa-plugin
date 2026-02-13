@@ -643,15 +643,19 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
 
 // 第三阶段：生成回答
 async function generateAnswer(question: string, queryData: any[]): Promise<string> {
-  const dataForAI = queryData.map(item => ({
-    ASIN: item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A',
-    商品标题: ((item['商品标题'] || item[FIELD_NAMES.title] || 'N/A') as string).substring(0, 100),
-    需求趋势得分: item['需求趋势得分'] || item[FIELD_NAMES.demand] || 0,
-    竞争强度得分: item['竞争强度得分'] || item[FIELD_NAMES.competition] || 0,
-    利润空间得分: item['利润空间得分'] || item[FIELD_NAMES.profit] || 0,
-    综合得分: item['综合得分'] || item[FIELD_NAMES.comprehensive] || 0,
-    初步产品分类: item['初步产品分类'] || item[FIELD_NAMES.category] || '其他'
-  }));
+  const dataForAI = queryData.map(item => {
+    const title = item['商品标题'] || item[FIELD_NAMES.title] || 'N/A';
+    const titleStr = typeof title === 'string' ? title : String(title || 'N/A');
+    return {
+      ASIN: item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A',
+      商品标题: titleStr.substring(0, 100),
+      需求趋势得分: item['需求趋势得分'] || item[FIELD_NAMES.demand] || 0,
+      竞争强度得分: item['竞争强度得分'] || item[FIELD_NAMES.competition] || 0,
+      利润空间得分: item['利润空间得分'] || item[FIELD_NAMES.profit] || 0,
+      综合得分: item['综合得分'] || item[FIELD_NAMES.comprehensive] || 0,
+      初步产品分类: item['初步产品分类'] || item[FIELD_NAMES.category] || '其他'
+    };
+  });
   
   const total = queryData.length;
   const withComprehensive = queryData.filter(item => (item['综合得分'] || item[FIELD_NAMES.comprehensive]) != null).length;

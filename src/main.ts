@@ -493,6 +493,55 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
   const historyDiv = document.getElementById('qa-history')!;
   
+  // 支持拖拽文本到输入框
+  questionInput.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 添加视觉反馈
+    questionInput.style.borderColor = '#0052cc';
+    questionInput.style.background = '#f0f7ff';
+  });
+  
+  questionInput.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 恢复原样
+    questionInput.style.borderColor = '#dfe1e6';
+    questionInput.style.background = 'white';
+  });
+  
+  questionInput.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // 恢复原样
+    questionInput.style.borderColor = '#dfe1e6';
+    questionInput.style.background = 'white';
+    
+    // 获取拖拽的文本
+    const text = e.dataTransfer?.getData('text/plain');
+    if (text) {
+      // 如果输入框已有内容，追加到后面
+      if (questionInput.value.trim()) {
+        questionInput.value += '\n' + text;
+      } else {
+        questionInput.value = text;
+      }
+      
+      console.log('🎯 拖拽文本已添加:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
+      
+      // 自动识别 ASIN
+      const asinMatch = text.match(/\b(B[A-Z0-9]{9})\b/gi);
+      if (asinMatch && asinMatch.length > 0) {
+        console.log('🔍 识别到 ASIN:', asinMatch.join(', '));
+      }
+      
+      // 聚焦到输入框末尾
+      questionInput.focus();
+      questionInput.setSelectionRange(questionInput.value.length, questionInput.value.length);
+    }
+  });
+  
   askBtn.addEventListener('click', async () => {
     const question = questionInput.value.trim();
     if (!question) {
@@ -503,7 +552,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   });
   
   questionInput.addEventListener('keydown', async (e) => {
-    // 按 Enter 直接发送（不按 Shift 时）
+    // 按 Enter 直接发送（不按 Shift 时，Shift+Enter 换行）
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const question = questionInput.value.trim();
@@ -511,6 +560,22 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
         await askAI(question, tableInfo, historyDiv);
       }
     }
+  });
+  
+  // 支持粘贴事件，自动识别 ASIN 等数据
+  questionInput.addEventListener('paste', async (e) => {
+    // 让粘贴自然发生
+    setTimeout(() => {
+      const pastedText = questionInput.value;
+      console.log('📋 检测到粘贴内容:', pastedText);
+      
+      // 自动识别 ASIN 格式（B开头的10位字符）
+      const asinMatch = pastedText.match(/\b(B[A-Z0-9]{9})\b/i);
+      if (asinMatch) {
+        console.log('🔍 识别到 ASIN:', asinMatch[1]);
+        // 可以在这里添加自动提示或格式化
+      }
+    }, 10);
   });
   
   clearBtn.addEventListener('click', () => {

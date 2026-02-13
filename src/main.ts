@@ -2,14 +2,33 @@ import { workspace, dashboard } from '@lark-base-open/js-sdk';
 
 // 常量定义
 const FIELD_NAMES = {
+  asin: 'ASIN',
+  title: '商品标题',
+  monthlySales: '月销量',
+  monthlySalesGrowth: '月销量增长率',
+  monthlyRevenue: '月销售额',
+  smallClassBSR: '小类BSR',
+  largeClassBSR: '大类BSR',
+  largeClassBSRGrowth: '大类BSR增长率',
+  ratings: '评分数',
+  sellers: '卖家数',
+  listingDays: '上架天数',
+  lqs: 'LQS',
+  profitMargin: '毛利率',
+  fba: 'FBA ($)',
   demand: '需求趋势得分',
   competition: '竞争强度得分',
   profit: '利润空间得分',
   comprehensive: '综合得分',
-  title: '商品标题',
-  asin: 'ASIN',
-  category: '初步产品分类'
+  category: '初步产品分类',
+  finalCategory: '最终产品分类',
+  conclusion: '选品结论',
+  priority: '优先级',
+  aiAnalysis: 'AI 选品解读'
 };
+
+// 🔥 所有字段列表（用于全量数据抓取）
+const ALL_FIELDS = Object.values(FIELD_NAMES);
 
 // Moonshot (Kimi) API 配置
 const MOONSHOT_API_KEY = 'sk-Ks0g9FuQKrIacdJn7oBMpRmY3FZNXx4rOYywdc0nfiu2HJui';
@@ -746,14 +765,21 @@ ${question}
 请分析用户的问题，决定需要查询哪些数据。返回一个 JSON 对象，格式如下：
 {
   "description": "查询计划的简短描述",
-  "sortField": "排序字段名（如：综合得分、需求趋势得分等，如果不需要排序则为null）",
+  "sortField": "排序字段名（如：综合得分、需求趋势得分等）",
   "sortOrder": "asc 或 desc",
-  "limit": 需要查询的记录数量（建议50-200，如果不需要限制则为null）,
+  "limit": 需要查询的记录数量,
   "filterCategory": "筛选的产品分类（如：畅销爆品、稳健产品等，如果不需要筛选则为null）",
   "minScore": {"field": "字段名", "value": 最小值} 或 null,
-  "maxScore": {"field": "字段名", "value": 最大值} 或 null,
-  "requiredFields": ["需要返回的字段名列表"]
+  "maxScore": {"field": "字段名", "value": 最大值} 或 null
 }
+
+**重要规则**：
+1. **limit 根据用户意图决定**：
+   - 用户问"Top10"、"前10名" → limit=10
+   - 用户问"推荐产品"、"好的产品" → limit=20-30
+   - 用户问"分析整体"、"所有产品" → limit=500
+2. **系统会自动获取所有字段**（ASIN、商品标题、月销量、月销量增长率、月销售额、小类BSR、大类BSR、评分数、卖家数、上架天数、LQS、毛利率、FBA费用、四维度得分等），你不需要指定字段
+3. 只有当用户明确要求筛选某个分类时，才设置 filterCategory
 
 只返回 JSON 对象，不要其他文字。`;
 
@@ -764,27 +790,30 @@ ${question}
     const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : response;
     const plan = JSON.parse(jsonStr);
     
-    return {
+    const finalPlan = {
       description: plan.description || '查询数据',
-      sortField: plan.sortField || null,
+      sortField: plan.sortField || '综合得分',
       sortOrder: plan.sortOrder || 'desc',
-      limit: plan.limit || 500, // 如果AI没有指定limit，默认返回500条数据
+      limit: plan.limit || 20,
       filterCategory: plan.filterCategory || null,
       minScore: plan.minScore || null,
-      maxScore: plan.maxScore || null,
-      requiredFields: plan.requiredFields || ['ASIN', '商品标题', '需求趋势得分', '竞争强度得分', '利润空间得分', '综合得分', '初步产品分类']
+      maxScore: plan.maxScore || null
     };
+    
+    console.log('📋 AI 查询计划:', finalPlan);
+    console.log(`📊 将获取 ${finalPlan.limit} 条数据，包含所有详细字段`);
+    
+    return finalPlan;
   } catch (e) {
     console.warn('解析查询计划失败，使用默认计划:', e);
     return {
       description: '默认查询',
       sortField: '综合得分',
       sortOrder: 'desc',
-      limit: 500, // 增加默认数据量
+      limit: 20,
       filterCategory: null,
       minScore: null,
-      maxScore: null,
-      requiredFields: ['ASIN', '商品标题', '需求趋势得分', '竞争强度得分', '利润空间得分', '综合得分', '初步产品分类']
+      maxScore: null
     };
   }
 }
@@ -793,6 +822,9 @@ ${question}
 async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
   const { table, fieldIds } = tableInfo;
   
+  console.log(`🎯 查询策略: 获取 ${plan.limit} 条数据的所有详细字段`);
+  
+  // 获取记录
   const allRecords: any[] = [];
   let pageToken: number | undefined = undefined;
   const pageSize = 200;
@@ -808,21 +840,24 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
     }
     
     pageToken = result.hasMore ? (typeof result.pageToken === 'number' ? result.pageToken : parseInt(String(result.pageToken))) : undefined;
-  } while (pageToken && (!plan.limit || allRecords.length < plan.limit * 2));
+  } while (pageToken && allRecords.length < Math.max(plan.limit * 2, 500)); // 多抓一些用于排序
   
   console.log(`📋 获取 ${allRecords.length} 条记录，开始处理...`);
+  
+  // 🔥 强制使用所有字段，确保完整的专业分析
+  const allFieldNames = ALL_FIELDS;
+  console.log(`📊 将提取 ${allFieldNames.length} 个字段: ${allFieldNames.slice(0, 5).join(', ')}...`);
   
   const data: any[] = [];
   const batchSize = 50;
   
-  for (let i = 0; i < allRecords.length && (!plan.limit || data.length < plan.limit * 1.5); i += batchSize) {
+  for (let i = 0; i < allRecords.length && data.length < plan.limit * 1.5; i += batchSize) {
     const batch = allRecords.slice(i, i + batchSize);
     const batchData = await Promise.all(
       batch.map(async (record: any) => {
         try {
           const values: any = {};
-          const fieldsToGet = plan.requiredFields || Object.keys(fieldIds);
-          for (const fieldName of fieldsToGet) {
+          for (const fieldName of allFieldNames) {
             const fieldId = fieldIds[fieldName];
             if (fieldId) {
               try {
@@ -885,26 +920,44 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
     filteredData = filteredData.slice(0, plan.limit);
   }
   
+  console.log(`✅ 查询完成，获取 ${filteredData.length} 条数据`);
+  
+  // 🔥 调试：打印前 3 条数据的关键字段
+  if (filteredData.length > 0) {
+    console.log('📊 数据示例（前3条）:');
+    filteredData.slice(0, 3).forEach((item, idx) => {
+      console.log(`  [${idx + 1}] ASIN: ${item['ASIN']}, 商品标题: ${item['商品标题']}, 需求: ${item['需求趋势得分']}, 竞争: ${item['竞争强度得分']}, 利润: ${item['利润空间得分']}, 综合: ${item['综合得分']}`);
+    });
+  }
+  
   return filteredData;
 }
 
 // 第三阶段：生成回答
 async function generateAnswer(question: string, queryData: any[], signal?: AbortSignal): Promise<string> {
+  console.log(`🤖 准备生成回答，输入数据量: ${queryData.length}`);
+  
+  // 🔥 直接传递所有字段给 AI（不做任何过滤），确保专业分析
   const dataForAI = queryData.map(item => {
-    // 使用 toText 安全处理商品标题（参考气泡图的实现）
-    const titleRaw = item['商品标题'] || item[FIELD_NAMES.title] || 'N/A';
-    const safeTitle = toText(titleRaw) || 'N/A';
-    
-    return {
-      ASIN: toText(item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A'),
-      商品标题: safeTitle,
-      需求趋势得分: item['需求趋势得分'] || item[FIELD_NAMES.demand] || 0,
-      竞争强度得分: item['竞争强度得分'] || item[FIELD_NAMES.competition] || 0,
-      利润空间得分: item['利润空间得分'] || item[FIELD_NAMES.profit] || 0,
-      综合得分: item['综合得分'] || item[FIELD_NAMES.comprehensive] || 0,
-      初步产品分类: item['初步产品分类'] || item[FIELD_NAMES.category] || '其他'
-    };
+    // 确保关键字段不为 null/undefined
+    const result: any = {};
+    for (const key of Object.keys(item)) {
+      const value = item[key];
+      if (value !== null && value !== undefined) {
+        result[key] = value;
+      }
+    }
+    return result;
   });
+  
+  // 🔥 调试：打印传给 AI 的数据示例
+  if (dataForAI.length > 0) {
+    console.log('📊 传给 AI 的数据示例（前2条）:');
+    dataForAI.slice(0, 2).forEach((item, idx) => {
+      const keys = Object.keys(item);
+      console.log(`  [${idx + 1}] 包含 ${keys.length} 个字段:`, keys.slice(0, 10).join(', '), '...');
+    });
+  }
   
   const total = queryData.length;
   const withComprehensive = queryData.filter(item => (item['综合得分'] || item[FIELD_NAMES.comprehensive]) != null).length;

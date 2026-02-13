@@ -264,10 +264,20 @@ async function saveConfig() {
 async function loadTableInfoFromTable(table: any): Promise<any> {
   const fieldList = await table.getFieldList();
   const fieldIds: Record<string, string> = {};
+  const fieldTypes: Record<string, any> = {}; // 存储字段类型信息
+  const fieldInfo: Array<{name: string, type: any, id: string}> = []; // 存储完整字段信息
   
   for (const field of fieldList) {
     const name = await field.getName();
     fieldIds[name] = field.id;
+    try {
+      const type = await field.getType();
+      fieldTypes[name] = type;
+      fieldInfo.push({ name, type, id: field.id });
+    } catch (e) {
+      fieldTypes[name] = null;
+      fieldInfo.push({ name, type: null, id: field.id });
+    }
   }
   
   // 获取统计信息（只读取少量记录）
@@ -350,6 +360,8 @@ async function loadTableInfoFromTable(table: any): Promise<any> {
   return {
     table,
     fieldIds,
+    fieldTypes,
+    fieldInfo, // 包含所有字段的完整信息
     totalCount,
     withComprehensiveCount: withComprehensive,
     avgComprehensive,
@@ -448,10 +460,26 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
   addMessageToHistory(historyDiv, 'user', question);
   
   const answerId = `answer-${Date.now()}`;
-  addMessageToHistory(historyDiv, 'ai', '正在分析问题并决定需要哪些数据...', answerId);
+  addMessageToHistory(historyDiv, 'ai', '正在分析问题...', answerId);
   
   try {
-    updateMessage(historyDiv, answerId, '🤖 正在分析问题，决定需要读取哪些数据...');
+    // 第一步：意图识别，判断是否需要查询数据
+    updateMessage(historyDiv, answerId, '🤖 正在分析问题意图...');
+    const intent = await analyzeIntent(question, tableInfo);
+    
+    console.log('📋 意图识别结果:', intent);
+    
+    if (!intent.needData) {
+      // 不需要查询数据，直接回复
+      updateMessage(historyDiv, answerId, '💡 正在生成回复...');
+      const answer = await generateDirectAnswer(question, tableInfo);
+      updateMessage(historyDiv, answerId, answer);
+      questionInput.value = '';
+      return;
+    }
+    
+    // 需要查询数据，执行查询计划
+    updateMessage(historyDiv, answerId, '📊 正在读取数据...');
     const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo);
     
     console.log('📋 AI 查询计划:', queryPlan);
@@ -476,20 +504,102 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
   }
 }
 
-// 第一阶段：分析问题并制定查询计划
+// 第一步：意图识别，判断是否需要查询数据
+async function analyzeIntent(question: string, tableInfo: any): Promise<{needData: boolean, reason: string}> {
+  const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
+  
+  const prompt = `你是一个专业的亚马逊选品分析师助手。用户可能会问你关于选品的问题。
+
+【可用数据】
+表名：选品结果表
+总记录数：${tableInfo.totalCount}
+可用字段：
+${fieldInfoStr}
+
+【用户问题】
+${question}
+
+【任务】
+判断用户的问题是否需要查询具体的数据记录来回答。
+
+如果问题属于以下情况，则不需要查询数据（needData: false）：
+1. 打招呼、问候（如：你好、hello、hi）
+2. 询问插件功能、如何使用
+3. 询问概念性问题（如：什么是综合得分、什么是BSR）
+4. 询问一般性建议（不涉及具体数据）
+5. 闲聊、非业务问题
+
+如果问题需要查询具体数据记录，则 needData: true：
+1. 要求推荐产品（如：推荐综合得分最高的10个产品）
+2. 要求分析具体数据（如：分析畅销爆品的特点）
+3. 要求统计信息（如：有多少个产品是稳健产品）
+4. 要求对比分析（如：对比不同分类的产品）
+
+返回 JSON 格式：
+{
+  "needData": true/false,
+  "reason": "判断理由"
+}
+
+只返回 JSON 对象，不要其他文字。`;
+
+  const response = await callMoonshotAPI(prompt);
+  
+  try {
+    const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : response;
+    const intent = JSON.parse(jsonStr);
+    
+    return {
+      needData: intent.needData === true,
+      reason: intent.reason || '需要查询数据'
+    };
+  } catch (e) {
+    console.warn('解析意图识别失败，默认需要查询数据:', e);
+    return {
+      needData: true,
+      reason: '解析失败，默认查询数据'
+    };
+  }
+}
+
+// 直接回答（不需要查询数据）
+async function generateDirectAnswer(question: string, tableInfo: any): Promise<string> {
+  const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '';
+  
+  const prompt = `你是一个专业的亚马逊选品分析师，擅长基于多维表格数据进行产品选品分析和市场洞察。
+
+【数据来源】
+你需要分析的数据来自选品结果表，该表包含以下关键字段：
+${fieldInfoStr}
+
+【分析原则】
+1. 如果用户打招呼，请友好回应，并简要介绍你的功能
+2. 如果询问功能，请说明你可以基于选品数据进行分析和推荐
+3. 如果询问概念，请专业地解释相关术语
+4. 回答要简洁明了，重点突出
+5. 控制在200字以内
+
+【用户问题】
+${question}
+
+【输出要求】
+- 直接输出回答，不需要额外的格式说明
+- 如果用户询问功能，可以提示："我可以帮您分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点等。请告诉我您想了解什么？"`;
+
+  return await callMoonshotAPI(prompt);
+}
+
+// 第二阶段：分析问题并制定查询计划
 async function analyzeQuestionAndPlanQuery(question: string, tableInfo: any): Promise<any> {
+  const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '';
+  
   const prompt = `你是一个数据查询规划助手。用户想要分析"选品结果表"的数据。
 
 【表结构信息】
 表名：选品结果表
-可用字段：
-- ASIN、商品标题
-- 月销量、月销量增长率、月销售额
-- 小类BSR、大类BSR、大类BSR增长率
-- 评分数、卖家数、上架天数、LQS
-- 毛利率、FBA($)
-- 需求趋势得分、竞争强度得分、利润空间得分、综合得分
-- 初步产品分类、最终产品分类、选品结论、优先级
+可用字段（包含类型）：
+${fieldInfoStr}
 
 【数据统计】
 - 总记录数：${tableInfo.totalCount}

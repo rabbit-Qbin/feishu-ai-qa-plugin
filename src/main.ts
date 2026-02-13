@@ -522,34 +522,41 @@ ${question}
 【任务】
 仔细分析用户的问题，判断是否需要查询具体的数据记录来回答。
 
-**重要判断标准：**
+**重要判断标准（严格按照以下规则）：**
 
-如果问题属于以下情况，则 **不需要查询数据**（needData: false）：
-1. 打招呼、问候（如：你好、hello、hi、您好）
-2. 询问插件功能、如何使用（如：你能做什么、怎么用、功能是什么）
-3. 询问概念性问题（如：什么是综合得分、什么是BSR、什么是需求趋势得分）
-4. 询问一般性建议（不涉及具体数据，如：如何选品、选品要注意什么）
-5. 闲聊、非业务问题（如：今天天气怎么样、你会什么）
+**不需要查询数据（needData: false）的情况：**
+1. 打招呼、问候（如：你好、hello、hi、您好、在吗）
+2. 询问插件功能、如何使用（如：你能做什么、怎么用、功能是什么、如何使用）
+3. 询问概念性问题（如：什么是综合得分、什么是BSR、什么是需求趋势得分、综合得分是什么意思）
+4. 询问一般性建议（不涉及具体数据，如：如何选品、选品要注意什么、选品有什么技巧）
+5. 闲聊、非业务问题（如：今天天气怎么样、你会什么、你叫什么名字）
 
-如果问题需要查询具体数据记录，则 **需要查询数据**（needData: true）：
-1. 要求推荐产品（如：推荐综合得分最高的10个产品、推荐利润空间得分高的产品）
-2. 要求分析具体数据（如：分析畅销爆品的特点、分析稳健产品的数据）
-3. 要求统计信息（如：有多少个产品是稳健产品、畅销爆品有多少个）
-4. 要求对比分析（如：对比不同分类的产品、对比需求趋势得分和竞争强度得分）
-5. 询问具体数值（如：平均综合得分是多少、最高利润空间得分是多少）
+**需要查询数据（needData: true）的情况：**
+1. 要求推荐产品（如：推荐综合得分最高的10个产品、推荐利润空间得分高的产品、给我推荐一些产品）
+2. 要求分析具体数据（如：分析畅销爆品的特点、分析稳健产品的数据、畅销爆品有什么特点）
+3. 要求统计信息（如：有多少个产品是稳健产品、畅销爆品有多少个、统计一下各类产品的数量）
+4. 要求对比分析（如：对比不同分类的产品、对比需求趋势得分和竞争强度得分、对比一下各类产品）
+5. 询问具体数值（如：平均综合得分是多少、最高利润空间得分是多少、综合得分最高是多少）
 
-**判断原则：**
-- 如果问题涉及"选品结果表"中的具体数据、记录、产品，必须查询数据
-- 如果问题只是概念、方法、功能询问，不需要查询数据
-- 如果问题模糊不清，优先判断为需要查询数据（因为用户可能想了解数据）
+**判断原则（必须严格遵守）：**
+- 如果用户只是打招呼、问功能、问概念、问方法，**必须返回 needData: false**
+- 只有明确要求查看数据、推荐产品、分析数据时，才返回 needData: true
+- 如果问题模糊，但包含"推荐"、"分析"、"统计"、"对比"、"多少"、"哪些"等关键词，返回 needData: true
 
-返回 JSON 格式：
+**返回格式（必须严格）：**
+只返回 JSON 对象，格式如下：
 {
-  "needData": true/false,
-  "reason": "判断理由（简要说明为什么需要或不需要查询数据）"
+  "needData": false,
+  "reason": "用户打招呼，不需要查询数据"
 }
 
-只返回 JSON 对象，不要其他文字。`;
+或者：
+{
+  "needData": true,
+  "reason": "用户要求推荐产品，需要查询数据"
+}
+
+**重要：只返回 JSON，不要任何其他文字、说明、解释。**`;
 
   const response = await callMoonshotAPI(prompt);
   
@@ -766,12 +773,34 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
 // 第三阶段：生成回答
 async function generateAnswer(question: string, queryData: any[]): Promise<string> {
   const dataForAI = queryData.map(item => {
-    const title = item['商品标题'] || item[FIELD_NAMES.title] || 'N/A';
-    const titleStr = typeof title === 'string' ? title : String(title || 'N/A');
-    // 确保 titleStr 是字符串且长度大于0
-    const safeTitle = titleStr && typeof titleStr === 'string' && titleStr.length > 0 
-      ? titleStr.substring(0, 100) 
+    // 安全地处理商品标题
+    let title: any = item['商品标题'] || item[FIELD_NAMES.title];
+    
+    // 如果 title 是 null 或 undefined，设为 'N/A'
+    if (title == null) {
+      title = 'N/A';
+    }
+    
+    // 确保 title 是字符串类型
+    let titleStr: string;
+    if (typeof title === 'string') {
+      titleStr = title;
+    } else if (typeof title === 'number') {
+      titleStr = String(title);
+    } else if (Array.isArray(title)) {
+      titleStr = title.length > 0 ? String(title[0]) : 'N/A';
+    } else if (typeof title === 'object' && title !== null) {
+      // 如果是对象，尝试提取 text 属性
+      titleStr = (title as any).text || String(title) || 'N/A';
+    } else {
+      titleStr = String(title);
+    }
+    
+    // 确保 titleStr 是有效的字符串，然后截取
+    const safeTitle = (titleStr && typeof titleStr === 'string' && titleStr.length > 0 && titleStr !== 'null' && titleStr !== 'undefined')
+      ? titleStr.substring(0, 100)
       : 'N/A';
+    
     return {
       ASIN: item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A',
       商品标题: safeTitle,

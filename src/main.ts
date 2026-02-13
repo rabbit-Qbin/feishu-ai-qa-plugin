@@ -465,7 +465,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
         <div style="display: flex; gap: 8px;">
           <textarea 
             id="question-input" 
-            placeholder="输入用户的问题，例如：推荐综合得分最高的10个产品..."
+            placeholder="请输入你的问题，例如：推荐综合得分最高的10个产品..."
             style="flex: 1; padding: 12px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px; resize: none; min-height: 60px; font-family: inherit;"
           ></textarea>
           <div style="display: flex; flex-direction: column; gap: 8px;">

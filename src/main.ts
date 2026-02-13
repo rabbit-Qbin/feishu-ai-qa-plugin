@@ -563,7 +563,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   });
   
   // 支持粘贴事件，自动识别 ASIN 等数据
-  questionInput.addEventListener('paste', async (e) => {
+  questionInput.addEventListener('paste', async () => {
     // 让粘贴自然发生
     setTimeout(() => {
       const pastedText = questionInput.value;

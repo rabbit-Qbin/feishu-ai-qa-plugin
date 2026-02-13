@@ -506,22 +506,9 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
 
 // 第一步：意图识别，判断是否需要查询数据
 async function analyzeIntent(question: string, tableInfo: any): Promise<{needData: boolean, reason: string}> {
-  // 先做简单的关键词匹配，作为兜底
-  const lowerQuestion = question.toLowerCase().trim();
-  const greetingKeywords = ['你好', 'hello', 'hi', 'hey', '您好', '在吗', '在', 'help', '帮助', '功能', '怎么用', '如何使用', '你能做什么'];
-  const isGreeting = greetingKeywords.some(keyword => lowerQuestion.includes(keyword.toLowerCase()));
-  
-  if (isGreeting && lowerQuestion.length < 30) {
-    console.log('✅ 关键词匹配：检测到打招呼，不需要查询数据');
-    return {
-      needData: false,
-      reason: '关键词匹配：打招呼或询问功能'
-    };
-  }
-  
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
   
-  const prompt = `你是一个专业的亚马逊选品分析师助手。用户可能会问你关于选品的问题。
+  const prompt = `你是一个专业的亚马逊选品分析师助手。你的职责是帮助用户分析"选品结果表"的数据。
 
 【可用数据】
 表名：选品结果表
@@ -533,25 +520,33 @@ ${fieldInfoStr}
 ${question}
 
 【任务】
-判断用户的问题是否需要查询具体的数据记录来回答。
+仔细分析用户的问题，判断是否需要查询具体的数据记录来回答。
 
-如果问题属于以下情况，则不需要查询数据（needData: false）：
-1. 打招呼、问候（如：你好、hello、hi）
-2. 询问插件功能、如何使用
-3. 询问概念性问题（如：什么是综合得分、什么是BSR）
-4. 询问一般性建议（不涉及具体数据）
-5. 闲聊、非业务问题
+**重要判断标准：**
 
-如果问题需要查询具体数据记录，则 needData: true：
-1. 要求推荐产品（如：推荐综合得分最高的10个产品）
-2. 要求分析具体数据（如：分析畅销爆品的特点）
-3. 要求统计信息（如：有多少个产品是稳健产品）
-4. 要求对比分析（如：对比不同分类的产品）
+如果问题属于以下情况，则 **不需要查询数据**（needData: false）：
+1. 打招呼、问候（如：你好、hello、hi、您好）
+2. 询问插件功能、如何使用（如：你能做什么、怎么用、功能是什么）
+3. 询问概念性问题（如：什么是综合得分、什么是BSR、什么是需求趋势得分）
+4. 询问一般性建议（不涉及具体数据，如：如何选品、选品要注意什么）
+5. 闲聊、非业务问题（如：今天天气怎么样、你会什么）
+
+如果问题需要查询具体数据记录，则 **需要查询数据**（needData: true）：
+1. 要求推荐产品（如：推荐综合得分最高的10个产品、推荐利润空间得分高的产品）
+2. 要求分析具体数据（如：分析畅销爆品的特点、分析稳健产品的数据）
+3. 要求统计信息（如：有多少个产品是稳健产品、畅销爆品有多少个）
+4. 要求对比分析（如：对比不同分类的产品、对比需求趋势得分和竞争强度得分）
+5. 询问具体数值（如：平均综合得分是多少、最高利润空间得分是多少）
+
+**判断原则：**
+- 如果问题涉及"选品结果表"中的具体数据、记录、产品，必须查询数据
+- 如果问题只是概念、方法、功能询问，不需要查询数据
+- 如果问题模糊不清，优先判断为需要查询数据（因为用户可能想了解数据）
 
 返回 JSON 格式：
 {
   "needData": true/false,
-  "reason": "判断理由"
+  "reason": "判断理由（简要说明为什么需要或不需要查询数据）"
 }
 
 只返回 JSON 对象，不要其他文字。`;
@@ -568,19 +563,7 @@ ${question}
       reason: intent.reason || '需要查询数据'
     };
   } catch (e) {
-    console.warn('解析意图识别失败，使用关键词判断:', e);
-    // 如果解析失败，再次使用关键词判断
-    const lowerQuestion = question.toLowerCase().trim();
-    const greetingKeywords = ['你好', 'hello', 'hi', 'hey', '您好', '在吗', '在'];
-    const isGreeting = greetingKeywords.some(keyword => lowerQuestion.includes(keyword.toLowerCase()));
-    
-    if (isGreeting && lowerQuestion.length < 30) {
-      return {
-        needData: false,
-        reason: '关键词匹配：打招呼'
-      };
-    }
-    
+    console.warn('解析意图识别失败，默认需要查询数据:', e);
     return {
       needData: true,
       reason: '解析失败，默认查询数据'
@@ -598,19 +581,23 @@ async function generateDirectAnswer(question: string, tableInfo: any): Promise<s
 你需要分析的数据来自选品结果表，该表包含以下关键字段：
 ${fieldInfoStr}
 
+【你的职责】
+你是专门帮助用户分析"选品结果表"数据的AI助手。你的核心功能是基于实际数据进行分析和推荐。
+
 【分析原则】
-1. 如果用户打招呼，请友好回应，并简要介绍你的功能
-2. 如果询问功能，请说明你可以基于选品数据进行分析和推荐
-3. 如果询问概念，请专业地解释相关术语
-4. 回答要简洁明了，重点突出
-5. 控制在200字以内
+1. **如果用户打招呼**：友好回应，并简要介绍你的功能，引导用户提问关于选品数据的问题
+2. **如果询问功能**：说明你可以基于选品数据进行分析和推荐，给出具体示例
+3. **如果询问概念**：专业地解释相关术语，并说明这些指标在选品分析中的作用
+4. **如果问题与选品无关**：礼貌地提醒用户这是选品分析场景，引导用户回到选品相关的问题
+5. 回答要简洁明了，重点突出，控制在200字以内
 
 【用户问题】
 ${question}
 
 【输出要求】
 - 直接输出回答，不需要额外的格式说明
-- 如果用户询问功能，可以提示："我可以帮您分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点等。请告诉我您想了解什么？"`;
+- **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助您分析选品数据的AI助手。我可以帮您分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉我您想了解选品数据的哪些方面？"
+- 如果用户询问功能，可以提示："我可以帮您分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉我您想了解什么？"`;
 
   return await callMoonshotAPI(prompt);
 }

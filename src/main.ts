@@ -648,7 +648,7 @@ ${question}
       description: plan.description || '查询数据',
       sortField: plan.sortField || null,
       sortOrder: plan.sortOrder || 'desc',
-      limit: plan.limit || 100,
+      limit: plan.limit || 500, // 如果AI没有指定limit，默认返回500条数据
       filterCategory: plan.filterCategory || null,
       minScore: plan.minScore || null,
       maxScore: plan.maxScore || null,

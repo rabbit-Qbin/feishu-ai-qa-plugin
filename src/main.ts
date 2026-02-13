@@ -893,11 +893,7 @@ async function generateAnswer(question: string, queryData: any[], signal?: Abort
   const dataForAI = queryData.map(item => {
     // 使用 toText 安全处理商品标题（参考气泡图的实现）
     const titleRaw = item['商品标题'] || item[FIELD_NAMES.title] || 'N/A';
-    const title = toText(titleRaw);
-    // 确保 title 是字符串类型，并且可以安全调用 substring
-    const safeTitle = (typeof title === 'string' && title.length > 0) 
-      ? title.substring(0, 100) 
-      : 'N/A';
+    const safeTitle = toText(titleRaw) || 'N/A';
     
     return {
       ASIN: toText(item['ASIN'] || item[FIELD_NAMES.asin] || 'N/A'),

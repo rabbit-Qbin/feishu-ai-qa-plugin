@@ -390,11 +390,44 @@ function toNumber(_val: any): number | undefined {
 
 // 转换为文本（参考气泡图的实现，用于安全处理商品标题等文本字段）
 function toText(val: any): string {
+  // 如果已经是字符串，直接返回
+  if (typeof val === 'string') return val;
+  
+  // 如果是 null 或 undefined，返回空字符串
+  if (val === null || val === undefined) return '';
+  
+  // 提取值
   const extracted = extractValue(val);
+  
+  // 如果提取后是字符串，返回
   if (typeof extracted === 'string') return extracted;
+  
+  // 如果是数字，转换为字符串
   if (typeof extracted === 'number') return String(extracted);
-  if (extracted && typeof extracted === 'object' && 'text' in extracted) return extracted.text;
-  return String(extracted || '');
+  
+  // 如果是布尔值，转换为字符串
+  if (typeof extracted === 'boolean') return String(extracted);
+  
+  // 如果是对象且有 text 属性，返回 text（确保 text 是字符串）
+  if (extracted && typeof extracted === 'object') {
+    if ('text' in extracted) {
+      const text = extracted.text;
+      if (typeof text === 'string') return text;
+      if (text === null || text === undefined) return '';
+      return String(text);
+    }
+    // 如果是数组，取第一个元素
+    if (Array.isArray(extracted) && extracted.length > 0) {
+      return toText(extracted[0]);
+    }
+  }
+  
+  // 其他情况，强制转换为字符串
+  try {
+    return String(extracted || '');
+  } catch (e) {
+    return '';
+  }
 }
 
 // 渲染问答面板

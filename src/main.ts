@@ -638,7 +638,7 @@ ${question}
 
 **重要：只返回 JSON，不要任何其他文字、说明、解释。**`;
 
-  const response = await callMoonshotAPI(prompt);
+  const response = await callMoonshotAPI(prompt, signal);
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);

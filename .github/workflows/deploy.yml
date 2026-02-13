@@ -28,6 +28,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Add cache busting
+        run: |
+          # 添加 .nojekyll 文件禁用 Jekyll
+          touch dist/.nojekyll
+          
+          # 为所有 HTML 文件添加时间戳注释，强制浏览器识别为新文件
+          find dist -name "*.html" -type f -exec sed -i "s|</head>|<!-- Build: $(date +%s) --></head>|g" {} \;
+          
+          # 输出构建信息
+          echo "Build timestamp: $(date)"
+          echo "Files in dist/assets:"
+          ls -lh dist/assets/
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 

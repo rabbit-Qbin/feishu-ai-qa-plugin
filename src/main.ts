@@ -177,18 +177,17 @@ async function autoFindTable() {
   }
 }
 
-// View 状态：只显示问答界面（按照官方文档要求）
+// View 状态：入口页 + 弹窗内打开问答界面
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    <div id="view-root" style="padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
       <div id="status" style="padding: 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 13px; margin-bottom: 16px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-view"></div>
+      <div id="qa-landing" style="display: none;"></div>
     </div>
   `;
   
-  // 使用 getData 获取数据（官方文档要求）
   try {
     const config: any = await dashboard.getConfig();
     if (!config?.dataConditions?.[0]?.baseToken || !config?.dataConditions?.[0]?.tableId) {
@@ -198,12 +197,9 @@ async function renderViewState(app: HTMLElement) {
     const baseToken = config.dataConditions[0].baseToken;
     const tableId = config.dataConditions[0].tableId;
     
-    // 使用 getData 获取数据（官方文档要求）
-    // getData 会使用保存的 dataConditions，不需要传参数
     const dataResult = await dashboard.getData();
     console.log('📊 getData 返回:', dataResult);
     
-    // 由于 getData 可能只返回聚合数据，我们需要通过 workspace 获取原始数据
     const bitableApp = await workspace.getBitable(baseToken);
     if (!bitableApp) {
       throw new Error('无法获取多维表格实例');
@@ -212,19 +208,104 @@ async function renderViewState(app: HTMLElement) {
     const table = await bitableApp.base.getTableById(tableId);
     const tableInfo = await loadTableInfoFromTable(table);
     
-    const qaView = document.getElementById('qa-view')!;
-    renderQAPanel(tableInfo, qaView);
-    
     const status = document.getElementById('status')!;
+    const landing = document.getElementById('qa-landing')!;
     status.style.display = 'none';
+    landing.style.display = 'block';
+    
+    // 入口页：客服风格小图标，固定右下角，点击打开弹窗
+    landing.innerHTML = `
+      <div style="position: relative; width: 100%; height: 100%; min-height: 120px;">
+        <button id="open-qa-btn" type="button" aria-label="打开 AI 问答" style="
+          position: absolute; right: 16px; bottom: 16px;
+          width: 56px; height: 56px; padding: 0; border: none; border-radius: 50%;
+          background: linear-gradient(135deg, #0052cc 0%, #2684ff 100%);
+          color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(0,82,204,0.4);
+          display: flex; align-items: center; justify-content: center; font-size: 28px;
+        ">
+          <span style="line-height: 1;">💬</span>
+        </button>
+      </div>
+    `;
+    
+    const openBtn = document.getElementById('open-qa-btn')!;
+    openBtn.addEventListener('click', () => {
+      openQAModal(tableInfo);
+    });
     
   } catch (error: any) {
     console.error('View 状态加载失败:', error);
     const status = document.getElementById('status')!;
+    status.style.display = 'block';
     status.textContent = `❌ 加载失败: ${error?.message || error}`;
     status.style.background = '#ffebee';
     status.style.color = '#de350b';
   }
+}
+
+/** 弹窗：在遮罩内渲染问答面板，支持关闭 */
+function openQAModal(tableInfo: any) {
+  const root = document.getElementById('view-root') || document.body;
+  
+  const overlay = document.createElement('div');
+  overlay.id = 'qa-modal-overlay';
+  overlay.setAttribute('style', `
+    position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.45); z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; box-sizing: border-box;
+  `);
+  
+  const modal = document.createElement('div');
+  modal.id = 'qa-modal-box';
+  modal.setAttribute('style', `
+    position: relative; background: white; border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.2);
+    width: 100%; max-width: 900px; height: 85vh; max-height: 720px;
+    display: flex; flex-direction: column; overflow: hidden;
+  `);
+  
+  const closeBtn = document.createElement('button');
+  closeBtn.setAttribute('type', 'button');
+  closeBtn.setAttribute('aria-label', '关闭');
+  closeBtn.innerHTML = '×';
+  closeBtn.setAttribute('style', `
+    position: absolute; right: 12px; top: 12px; z-index: 10;
+    width: 32px; height: 32px; padding: 0; border: none;
+    background: #f4f5f7; color: #5e6c84; font-size: 24px; line-height: 1;
+    border-radius: 6px; cursor: pointer;
+  `);
+  
+  const panelWrap = document.createElement('div');
+  panelWrap.setAttribute('style', 'flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 16px; padding-top: 48px;');
+  
+  const closeModal = () => {
+    overlay.remove();
+  };
+  
+  const onEscape = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', onEscape);
+    }
+  };
+  
+  closeBtn.addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeModal();
+      document.removeEventListener('keydown', onEscape);
+    }
+  });
+  modal.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', onEscape);
+  
+  overlay.appendChild(modal);
+  modal.appendChild(closeBtn);
+  modal.appendChild(panelWrap);
+  root.appendChild(overlay);
+  
+  renderQAPanel(tableInfo, panelWrap);
 }
 
 

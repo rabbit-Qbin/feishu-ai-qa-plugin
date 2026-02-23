@@ -30,10 +30,17 @@ const FIELD_NAMES = {
 // 🔥 所有字段列表（用于全量数据抓取）
 const ALL_FIELDS = Object.values(FIELD_NAMES);
 
-// Moonshot (Kimi) API 配置
-const MOONSHOT_API_KEY = 'sk-Ks0g9FuQKrIacdJn7oBMpRmY3FZNXx4rOYywdc0nfiu2HJui';
+// Moonshot (Kimi) API 默认配置（可被 customConfig 覆盖）
+const MOONSHOT_API_KEY = '';
 const MOONSHOT_API_URL = 'https://api.moonshot.cn/v1/chat/completions';
 const MOONSHOT_MODEL = 'moonshot-v1-8k';
+
+// 当前使用的大模型配置（View 状态下从 customConfig 读取）
+let currentApiConfig: { apiUrl: string; apiKey: string; model: string } = {
+  apiUrl: MOONSHOT_API_URL,
+  apiKey: MOONSHOT_API_KEY,
+  model: MOONSHOT_MODEL
+};
 
 // 目标表名
 const TARGET_TABLE_NAME = '选品结果';
@@ -90,6 +97,19 @@ async function renderCreateConfigState(app: HTMLElement) {
           <div id="table-info" style="font-size: 14px; color: #172b4d; font-weight: 500;">正在查找...</div>
         </div>
         
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">API 地址 (URL)</label>
+          <input id="config-api-url" type="text" placeholder="https://api.moonshot.cn/v1/chat/completions" style="width: 100%; padding: 8px 12px; border: 1px solid #dfe1e6; border-radius: 6px; font-size: 13px; box-sizing: border-box;" />
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">API Key</label>
+          <input id="config-api-key" type="password" placeholder="sk-xxx" style="width: 100%; padding: 8px 12px; border: 1px solid #dfe1e6; border-radius: 6px; font-size: 13px; box-sizing: border-box;" />
+        </div>
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">模型名称</label>
+          <input id="config-model" type="text" placeholder="moonshot-v1-8k" style="width: 100%; padding: 8px 12px; border: 1px solid #dfe1e6; border-radius: 6px; font-size: 13px; box-sizing: border-box;" title="兼容 OpenAI 的模型名，如 moonshot-v1-8k、gpt-4 等" />
+        </div>
+        
         <!-- 确定按钮（固定在底部） -->
         <button id="save-btn" style="position: fixed; bottom: 0; right: 0; width: 340px; padding: 16px; font-size: 14px; font-weight: 600; background: #0052cc; color: white; border: none; cursor: pointer; disabled: true;">
           确定
@@ -100,6 +120,18 @@ async function renderCreateConfigState(app: HTMLElement) {
   
   // 自动查找"选品结果"表
   await autoFindTable();
+  
+  // 预填大模型配置（若有已保存的）
+  try {
+    const config: any = await dashboard.getConfig();
+    const cc = config?.customConfig || {};
+    const urlInput = document.getElementById('config-api-url') as HTMLInputElement;
+    const keyInput = document.getElementById('config-api-key') as HTMLInputElement;
+    const modelInput = document.getElementById('config-model') as HTMLInputElement;
+    if (urlInput && cc.apiUrl) urlInput.value = cc.apiUrl;
+    if (keyInput && cc.apiKey) keyInput.value = cc.apiKey;
+    if (modelInput && cc.model) modelInput.value = cc.model;
+  } catch (_) {}
   
   // 绑定保存按钮
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
@@ -177,14 +209,14 @@ async function autoFindTable() {
   }
 }
 
-// View 状态：入口页 + 弹窗内打开问答界面
+// View 状态：直接显示问答对话框（无弹窗）
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <div id="status" style="padding: 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 13px; margin-bottom: 16px;">
+    <div id="view-root" style="display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+      <div id="status" style="padding: 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 13px; margin: 16px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-landing" style="display: none;"></div>
+      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 16px 16px;"></div>
     </div>
   `;
   
@@ -193,6 +225,14 @@ async function renderViewState(app: HTMLElement) {
     if (!config?.dataConditions?.[0]?.baseToken || !config?.dataConditions?.[0]?.tableId) {
       throw new Error('未找到保存的配置，请重新配置插件');
     }
+    
+    // 使用配置中的大模型参数（Create 状态传入的 customConfig）
+    const cc = config.customConfig || {};
+    currentApiConfig = {
+      apiUrl: (cc.apiUrl || '').trim() || MOONSHOT_API_URL,
+      apiKey: (cc.apiKey || '').trim(),
+      model: (cc.model || '').trim() || MOONSHOT_MODEL
+    };
     
     const baseToken = config.dataConditions[0].baseToken;
     const tableId = config.dataConditions[0].tableId;
@@ -209,29 +249,12 @@ async function renderViewState(app: HTMLElement) {
     const tableInfo = await loadTableInfoFromTable(table);
     
     const status = document.getElementById('status')!;
-    const landing = document.getElementById('qa-landing')!;
+    const panelContainer = document.getElementById('qa-panel-container')!;
     status.style.display = 'none';
-    landing.style.display = 'block';
+    panelContainer.style.display = 'flex';
+    panelContainer.style.flexDirection = 'column';
     
-    // 入口页：客服风格小图标，固定右下角，点击打开弹窗
-    landing.innerHTML = `
-      <div style="position: relative; width: 100%; height: 100%; min-height: 120px;">
-        <button id="open-qa-btn" type="button" aria-label="打开 AI 问答" style="
-          position: absolute; right: 16px; bottom: 16px;
-          width: 56px; height: 56px; padding: 0; border: none; border-radius: 50%;
-          background: linear-gradient(135deg, #0052cc 0%, #2684ff 100%);
-          color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(0,82,204,0.4);
-          display: flex; align-items: center; justify-content: center; font-size: 28px;
-        ">
-          <span style="line-height: 1;">💬</span>
-        </button>
-      </div>
-    `;
-    
-    const openBtn = document.getElementById('open-qa-btn')!;
-    openBtn.addEventListener('click', () => {
-      openQAModal(tableInfo);
-    });
+    renderQAPanel(tableInfo, panelContainer);
     
   } catch (error: any) {
     console.error('View 状态加载失败:', error);
@@ -241,71 +264,6 @@ async function renderViewState(app: HTMLElement) {
     status.style.background = '#ffebee';
     status.style.color = '#de350b';
   }
-}
-
-/** 弹窗：在遮罩内渲染问答面板，支持关闭 */
-function openQAModal(tableInfo: any) {
-  const root = document.getElementById('view-root') || document.body;
-  
-  const overlay = document.createElement('div');
-  overlay.id = 'qa-modal-overlay';
-  overlay.setAttribute('style', `
-    position: fixed; left: 0; top: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.45); z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px; box-sizing: border-box;
-  `);
-  
-  const modal = document.createElement('div');
-  modal.id = 'qa-modal-box';
-  modal.setAttribute('style', `
-    position: relative; background: white; border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.2);
-    width: 100%; max-width: 900px; height: 85vh; max-height: 720px;
-    display: flex; flex-direction: column; overflow: hidden;
-  `);
-  
-  const closeBtn = document.createElement('button');
-  closeBtn.setAttribute('type', 'button');
-  closeBtn.setAttribute('aria-label', '关闭');
-  closeBtn.innerHTML = '×';
-  closeBtn.setAttribute('style', `
-    position: absolute; right: 12px; top: 12px; z-index: 10;
-    width: 32px; height: 32px; padding: 0; border: none;
-    background: #f4f5f7; color: #5e6c84; font-size: 24px; line-height: 1;
-    border-radius: 6px; cursor: pointer;
-  `);
-  
-  const panelWrap = document.createElement('div');
-  panelWrap.setAttribute('style', 'flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 16px; padding-top: 48px;');
-  
-  const closeModal = () => {
-    overlay.remove();
-  };
-  
-  const onEscape = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      closeModal();
-      document.removeEventListener('keydown', onEscape);
-    }
-  };
-  
-  closeBtn.addEventListener('click', closeModal);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      closeModal();
-      document.removeEventListener('keydown', onEscape);
-    }
-  });
-  modal.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('keydown', onEscape);
-  
-  overlay.appendChild(modal);
-  modal.appendChild(closeBtn);
-  modal.appendChild(panelWrap);
-  root.appendChild(overlay);
-  
-  renderQAPanel(tableInfo, panelWrap);
 }
 
 
@@ -326,6 +284,13 @@ async function saveConfig() {
   status.textContent = '⏳ 正在保存配置...';
   
   try {
+    const apiUrlInput = document.getElementById('config-api-url') as HTMLInputElement;
+    const apiKeyInput = document.getElementById('config-api-key') as HTMLInputElement;
+    const modelInput = document.getElementById('config-model') as HTMLInputElement;
+    const apiUrl = (apiUrlInput?.value || '').trim() || MOONSHOT_API_URL;
+    const apiKey = (apiKeyInput?.value || '').trim();
+    const model = (modelInput?.value || '').trim() || MOONSHOT_MODEL;
+    
     // 构建 dataConditions（必须包含 baseToken 和 tableId）
     const dataConditions = [{
       baseToken: foundTableInfo.baseToken,
@@ -334,10 +299,10 @@ async function saveConfig() {
     
     console.log('💾 保存 dataConditions:', JSON.stringify(dataConditions, null, 2));
     
-    // 保存配置（官方文档要求）
+    // 保存配置（含大模型：API 地址、API Key、模型名称）
     await dashboard.saveConfig({
       dataConditions,
-      customConfig: {}
+      customConfig: { apiUrl, apiKey, model }
     });
     
     status.textContent = '✅ 配置已保存';
@@ -1167,11 +1132,15 @@ ${question}`;
   return await callMoonshotAPI(prompt, signal);
 }
 
-// 调用 Moonshot (Kimi) API
+// 调用 Moonshot (Kimi) API（使用配置中的 apiUrl / apiKey）
 async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<string> {
   try {
-    console.log('📡 调用 Moonshot API:', MOONSHOT_API_URL);
-    console.log('📡 模型:', MOONSHOT_MODEL);
+    const { apiUrl, apiKey } = currentApiConfig;
+    if (!apiKey) {
+      throw new Error('请先在插件配置中填写 API Key（配置插件 → 右侧填写 API 地址和 API Key → 确定）');
+    }
+    console.log('📡 调用 API:', apiUrl);
+    console.log('📡 模型:', currentApiConfig.model);
     
     // 创建超时控制器
     const timeoutController = new AbortController();
@@ -1186,15 +1155,15 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
       });
     }
     
-    const response = await fetch(MOONSHOT_API_URL, {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MOONSHOT_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        model: MOONSHOT_MODEL,
+        model: currentApiConfig.model,
         messages: [
           {
             role: 'user',

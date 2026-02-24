@@ -511,17 +511,17 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
     <div class="qa-layout-root" style="display: flex; flex-direction: column; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
       <h1 style="flex-shrink: 0; color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
-      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; background: white; border-radius: 6px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); overflow: hidden;">
-        <div id="qa-history" style="flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 10px; padding: 10px; background: #fafbfc; border-radius: 4px;">
+      <div class="qa-scroll" style="flex: 1; min-height: 0; overflow-y: auto; position: relative; background: white; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); padding: 12px 12px 60px;">
+        <div id="qa-history" style="background: #fafbfc; border-radius: 4px; padding: 10px; margin-bottom: 12px;">
           <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
-        <div class="qa-input-bar" style="flex-shrink: 0; display: flex; gap: 6px;">
+        <div class="qa-input-bar" style="position: sticky; bottom: 0; left: 0; right: 0; display: flex; gap: 6px; padding: 8px 0 0; background: white;">
           <textarea 
             id="question-input" 
             placeholder="输入问题，如：推荐综合得分最高的10个产品"
-            style="flex: 1; padding: 8px 10px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 12px; resize: none; min-height: 44px; font-family: inherit;"
+            style="flex: 1; padding: 8px 10px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 12px; resize: none; min-height: 44px; font-family: inherit; background: #fff;"
           ></textarea>
           <div style="display: flex; flex-direction: column; gap: 6px;">
             <button 

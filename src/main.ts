@@ -1170,7 +1170,7 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
             content: prompt
           }
         ],
-        temperature: 0.7,
+        temperature: 1,
         max_tokens: 2000
       }),
       signal: combinedSignal

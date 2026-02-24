@@ -216,7 +216,7 @@ async function renderViewState(app: HTMLElement) {
       <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box;"></div>
+      <div id="qa-panel-container" style="flex: 1; min-height: 0; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box;"></div>
     </div>
   `;
   
@@ -509,17 +509,15 @@ function toText(val: any): string {
 // 渲染问答面板
 function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
-    <div style="display: flex; flex-direction: column; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <h1 style="color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
-      
-      <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 6px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); overflow: hidden;">
-        <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 10px; padding: 10px; background: #fafbfc; border-radius: 4px; min-height: 160px;">
+    <div class="qa-layout-root" style="display: flex; flex-direction: column; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+      <h1 style="flex-shrink: 0; color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; background: white; border-radius: 6px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); overflow: hidden;">
+        <div id="qa-history" style="flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 10px; padding: 10px; background: #fafbfc; border-radius: 4px;">
           <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
-        
-        <div style="display: flex; gap: 6px;">
+        <div class="qa-input-bar" style="flex-shrink: 0; display: flex; gap: 6px;">
           <textarea 
             id="question-input" 
             placeholder="输入问题，如：推荐综合得分最高的10个产品"
@@ -837,29 +835,29 @@ async function generateDirectAnswer(question: string, tableInfo: any, signal?: A
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '';
   
   const prompt = `你是一个专业的亚马逊选品分析师，擅长基于多维表格数据进行产品选品分析和市场洞察。
-
+  
 【数据来源】
 你需要分析的数据来自选品结果表，该表包含以下关键字段：
 ${fieldInfoStr}
-
+  
 【你的职责】
 你是专门帮助用户分析"选品结果表"数据的AI助手。你的核心功能是基于实际数据进行分析和推荐。
-
+  
 【分析原则】
 1. **如果用户打招呼**：友好回应，并简要介绍你的功能，引导用户提问关于选品数据的问题
 2. **如果询问功能**：说明你可以基于选品数据进行分析和推荐，给出具体示例
 3. **如果询问概念**：专业地解释相关术语，并说明这些指标在选品分析中的作用
 4. **如果问题与选品无关**：礼貌地提醒用户这是选品分析场景，引导用户回到选品相关的问题
 5. 回答要简洁明了，重点突出，控制在200字以内
-
+  
 【用户问题】
 ${question}
-
+  
 【输出要求】
 - 直接输出回答，不需要额外的格式说明
 - **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助用户分析选品数据的AI助手。我可以帮用户分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉用户想了解选品数据的哪些方面？"
 - 如果用户询问功能，可以提示："我可以帮用户分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉用户想了解什么？"`;
-
+  
   return await callMoonshotAPI(prompt, signal);
 }
 
@@ -1108,11 +1106,12 @@ async function generateAnswer(question: string, queryData: any[], signal?: Abort
 - 评分数、卖家数、上架天数、LQS
 - 毛利率、FBA($)
 - 需求趋势得分、竞争强度得分、利润空间得分、综合得分
-- 初步产品分类、最终产品分类、选品结论、优先级、AI 选品解读、AI 选品分析
-
+- 初步产品分类、最终产品分类、选品结论、优先级、AI 选品解读、AI 选品建议、AI 选品分析
+其中，"AI 选品解读" 和 "AI 选品建议" 字段是之前生成的解释和建议，你可以把它们当作补充参考信息，但最终判断仍需基于本次提供的具体数据和数值。
+  
 【重要说明】
 **竞争强度得分**的含义：竞争强度得分越高，说明该产品的竞争环境越不饱和，竞争机会越大。这是因为该维度采用了反向量化计算方式，即：得分越高 = 竞争压力越小 = 进入机会越大。
-
+  
 【分析原则】
 1. 必须基于实际数据进行回答，引用具体的数据和数值
 2. 如果问题涉及产品推荐，请按综合得分排序进行分析
@@ -1120,7 +1119,7 @@ async function generateAnswer(question: string, queryData: any[], signal?: Abort
 4. 如果问题涉及竞争环境，请结合竞争强度得分、卖家数、BSR等指标。记住：竞争强度得分越高表示竞争机会越大（反向量化）
 5. 如果问题涉及利润空间，请结合利润空间得分、毛利率、FBA费用等指标
 6. 回答要专业、准确、有洞察力，基于实际数据进行分析
-
+  
 【输出要求】
 - 你的回答需要填入选品结果表的"AI 选品分析"字段
 - 回答要简洁明了，重点突出

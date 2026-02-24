@@ -114,6 +114,15 @@ body {
   transform: none;
 }
 
+/* 问答布局根：仅历史区滚动，输入框固定底部 */
+.qa-layout-root {
+  height: 100%;
+  min-height: 0;
+}
+.qa-input-bar {
+  flex-shrink: 0;
+}
+
 /* AI 问答面板样式 */
 .qa-panel {
   width: 100%;

@@ -212,11 +212,11 @@ async function autoFindTable() {
 // View 状态：直接显示问答对话框（无弹窗）
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <div id="status" style="padding: 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 13px; margin: 16px;">
+    <div id="view-root" style="display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 380px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+      <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 16px 16px;"></div>
+      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 12px 12px; max-width: 380px; margin: 0 auto; width: 100%; box-sizing: border-box;"></div>
     </div>
   `;
   
@@ -499,31 +499,31 @@ function toText(val: any): string {
 function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-      <h1 style="color: #172b4d; margin: 0 0 8px 0; font-size: 24px; font-weight: 600; text-align: center;">AI 选品算命</h1>
+      <h1 style="color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
       
-      <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
-        <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 16px; padding: 16px; background: #fafbfc; border-radius: 4px; min-height: 200px;">
-          <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+      <div style="flex: 1; display: flex; flex-direction: column; background: white; border-radius: 6px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); overflow: hidden;">
+        <div id="qa-history" style="flex: 1; overflow-y: auto; margin-bottom: 10px; padding: 10px; background: #fafbfc; border-radius: 4px; min-height: 160px;">
+          <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
         
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 6px;">
           <textarea 
             id="question-input" 
-            placeholder="请输入你的问题，例如：推荐综合得分最高的10个产品……"
-            style="flex: 1; padding: 12px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 13px; resize: none; min-height: 60px; font-family: inherit;"
+            placeholder="输入问题，如：推荐综合得分最高的10个产品"
+            style="flex: 1; padding: 8px 10px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 12px; resize: none; min-height: 44px; font-family: inherit;"
           ></textarea>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
             <button 
               id="ask-btn" 
-              style="padding: 8px 24px; border: none; background: #0052cc; color: white; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;"
+              style="padding: 6px 16px; border: none; background: #0052cc; color: white; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;"
             >
               提问
             </button>
             <button 
               id="clear-btn" 
-              style="padding: 8px 24px; border: 1px solid #dfe1e6; background: white; color: #5e6c84; border-radius: 4px; cursor: pointer; font-size: 13px;"
+              style="padding: 6px 16px; border: 1px solid #dfe1e6; background: white; color: #5e6c84; border-radius: 4px; cursor: pointer; font-size: 12px;"
             >
               清空
             </button>
@@ -627,7 +627,7 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   clearBtn.addEventListener('click', () => {
     questionInput.value = '';
     historyDiv.innerHTML = `
-      <div style="color: #5e6c84; font-size: 13px; text-align: center; padding: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+      <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
         已连接选品结果表，AI 将根据问题动态读取数据
       </div>
     `;
@@ -1215,20 +1215,20 @@ function addMessageToHistory(historyDiv: HTMLElement, role: 'user' | 'ai', conte
   const messageDiv = document.createElement('div');
   messageDiv.id = id || '';
   messageDiv.style.cssText = `
-    margin-bottom: 16px;
-    padding: 12px 16px;
-    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
     ${role === 'user' 
-      ? 'background: #e3f2fd; margin-left: 20%; text-align: right;' 
-      : 'background: white; margin-right: 20%; border: 1px solid #dfe1e6;'
+      ? 'background: #e3f2fd; margin-left: 15%; text-align: right;' 
+      : 'background: white; margin-right: 15%; border: 1px solid #dfe1e6;'
     }
   `;
   
   messageDiv.innerHTML = `
-    <div style="font-size: 13px; color: #5e6c84; margin-bottom: 4px;">
+    <div style="font-size: 11px; color: #5e6c84; margin-bottom: 2px;">
       ${role === 'user' ? '👤 用户' : '🤖 AI'}
     </div>
-    <div style="font-size: 14px; color: #172b4d; line-height: 1.6; white-space: pre-wrap;">
+    <div style="font-size: 12px; color: #172b4d; line-height: 1.5; white-space: pre-wrap;">
       ${content}
     </div>
   `;

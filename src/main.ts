@@ -209,14 +209,14 @@ async function autoFindTable() {
   }
 }
 
-// View 状态：直接显示问答对话框（无弹窗）
+// View 状态：直接显示问答对话框（无弹窗），自适应拉宽/拉大
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 380px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
       <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 12px 12px; max-width: 380px; margin: 0 auto; width: 100%; box-sizing: border-box;"></div>
+      <div id="qa-panel-container" style="flex: 1; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box;"></div>
     </div>
   `;
   
@@ -250,11 +250,22 @@ async function renderViewState(app: HTMLElement) {
     
     const status = document.getElementById('status')!;
     const panelContainer = document.getElementById('qa-panel-container')!;
+    const viewRoot = document.getElementById('view-root')!;
     status.style.display = 'none';
     panelContainer.style.display = 'flex';
     panelContainer.style.flexDirection = 'column';
     
     renderQAPanel(tableInfo, panelContainer);
+    
+    // 自适应：拉宽/拉大面板时随容器尺寸变化（与气泡图一致）
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement;
+        const w = entry.contentRect.width;
+        el.setAttribute('data-width', String(Math.round(w)));
+      }
+    });
+    resizeObserver.observe(viewRoot);
     
   } catch (error: any) {
     console.error('View 状态加载失败:', error);

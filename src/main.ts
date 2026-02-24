@@ -212,7 +212,7 @@ async function autoFindTable() {
 // View 状态：直接显示问答对话框（无弹窗），自适应拉宽/拉大
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
+    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100vh; max-height: 100%; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
       <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>

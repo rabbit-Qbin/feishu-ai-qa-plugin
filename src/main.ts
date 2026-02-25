@@ -1,4 +1,5 @@
 import { workspace, dashboard } from '@lark-base-open/js-sdk';
+import './style.css';
 
 // 常量定义
 const FIELD_NAMES = {
@@ -77,7 +78,7 @@ async function init() {
 // Create/Config 状态：显示配置界面（自动查找"选品结果"表）
 async function renderCreateConfigState(app: HTMLElement) {
   app.innerHTML = `
-    <div style="display: flex; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    <div style="display: flex; flex: 1; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
       <!-- 左侧预览区 -->
       <div style="flex: 1; padding: 24px; overflow: auto; background: #fafbfc;">
         <div id="preview-area" style="background: white; border-radius: 8px; padding: 20px; min-height: 400px;">
@@ -212,8 +213,8 @@ async function autoFindTable() {
 // View 状态：直接显示问答对话框（无弹窗），自适应拉宽/拉大
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100%; max-height: 100%; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
-      <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
+    <div id="view-root" style="display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
+      <div id="status" style="flex-shrink: 0; padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>
       <div id="qa-panel-container" style="flex: 1; min-height: 0; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box;"></div>
@@ -256,6 +257,9 @@ async function renderViewState(app: HTMLElement) {
     panelContainer.style.flexDirection = 'column';
     
     renderQAPanel(tableInfo, panelContainer);
+    
+    // 布局调试：在控制台打印各层高度，确认「只有中间滚动、输入框贴底」
+    setTimeout(() => debugLayout(), 100);
     
     // 自适应：拉宽/拉大面板时随容器尺寸变化（与气泡图一致）
     const resizeObserver = new ResizeObserver((entries) => {
@@ -511,10 +515,12 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
     <div class="qa-layout-root" style="display: flex; flex-direction: column; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
       <h1 style="flex-shrink: 0; color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
-      <div class="qa-scroll" style="flex: 1; min-height: 0; overflow-y: auto; background: white; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); padding: 12px;">
-        <div id="qa-history" style="background: #fafbfc; border-radius: 4px; padding: 10px;">
-          <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            已连接选品结果表，AI 将根据问题动态读取数据
+      <div class="qa-scroll-wrapper" style="flex: 1; min-height: 0; position: relative; overflow: hidden; background: white; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">
+        <div class="qa-scroll" style="height: 100%; overflow-y: auto; padding: 12px;">
+          <div id="qa-history" style="background: #fafbfc; border-radius: 4px; padding: 10px;">
+            <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              已连接选品结果表，AI 将根据问题动态读取数据
+            </div>
           </div>
         </div>
       </div>
@@ -1220,6 +1226,43 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
   }
 }
 
+// 布局调试：打印各层高度，用于确认输入框是否固定在底部
+function debugLayout() {
+  const app = document.getElementById('app');
+  const viewRoot = document.getElementById('view-root');
+  const panelContainer = document.getElementById('qa-panel-container');
+  const layoutRoot = document.querySelector('.qa-layout-root');
+  const qaScroll = document.querySelector('.qa-scroll');
+  const inputBar = document.querySelector('.qa-input-bar');
+  const entries: Array<{ name: string; el: Element | null; height: number; scrollHeight: number; overflow: string }> = [];
+  for (const [name, el] of [
+    ['#app', app],
+    ['#view-root', viewRoot],
+    ['#qa-panel-container', panelContainer],
+    ['.qa-layout-root', layoutRoot],
+    ['.qa-scroll(可滚动区)', qaScroll],
+    ['.qa-input-bar', inputBar]
+  ] as const) {
+    if (!el) continue;
+    const style = window.getComputedStyle(el as HTMLElement);
+    const rect = (el as HTMLElement).getBoundingClientRect();
+    entries.push({
+      name,
+      el,
+      height: Math.round(rect.height),
+      scrollHeight: (el as HTMLElement).scrollHeight,
+      overflow: style.overflowY
+    });
+  }
+  console.log('🔧 布局调试（高度链）:', entries.map(e => `${e.name}: height=${e.height} scrollHeight=${e.scrollHeight} overflowY=${e.overflow}`).join(' | '));
+  if (qaScroll && (qaScroll as HTMLElement).scrollHeight > (qaScroll as HTMLElement).clientHeight) {
+    console.log('✅ 中间区域可滚动，输入框应贴底');
+  } else if (layoutRoot) {
+    const lr = layoutRoot as HTMLElement;
+    console.log('📐 qa-layout-root 总高:', lr.scrollHeight, 'clientHeight:', lr.clientHeight, lr.scrollHeight > lr.clientHeight ? '→ 整块在滚，需检查父级高度' : '→ 未溢出');
+  }
+}
+
 // 添加消息到历史
 function addMessageToHistory(historyDiv: HTMLElement, role: 'user' | 'ai', content: string, id?: string) {
   const messageDiv = document.createElement('div');
@@ -1244,7 +1287,8 @@ function addMessageToHistory(historyDiv: HTMLElement, role: 'user' | 'ai', conte
   `;
   
   historyDiv.appendChild(messageDiv);
-  historyDiv.scrollTop = historyDiv.scrollHeight;
+  const scrollContainer = historyDiv.closest('.qa-scroll') as HTMLElement;
+  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
 // 更新消息
@@ -1256,7 +1300,8 @@ function updateMessage(historyDiv: HTMLElement, id: string, content: string) {
       contentDiv.textContent = content;
     }
   }
-  historyDiv.scrollTop = historyDiv.scrollHeight;
+  const scrollContainer = historyDiv.closest('.qa-scroll') as HTMLElement;
+  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
 // 初始化

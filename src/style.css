@@ -5,6 +5,14 @@
   box-sizing: border-box;
 }
 
+/* 高度链：让插件格子内「只有中间对话区滚动、输入框固定底部」 */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -13,12 +21,12 @@ body {
 
 #app {
   width: 100%;
-  height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 /* 配置面板样式 */
@@ -405,10 +413,6 @@ body {
 
 /* 响应式 */
 @media (max-width: 768px) {
-  #app {
-    padding: 10px;
-  }
-
   .qa-panel {
     max-width: 100%;
     height: 95vh;

@@ -212,11 +212,11 @@ async function autoFindTable() {
 // View 状态：直接显示问答对话框（无弹窗），自适应拉宽/拉大
 async function renderViewState(app: HTMLElement) {
   app.innerHTML = `
-    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100%; max-height: 100%; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box; position: relative;">
+    <div id="view-root" style="display: flex; flex-direction: column; width: 100%; height: 100%; max-height: 100%; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box;">
       <div id="status" style="padding: 10px 12px; background: #f4f5f7; border-radius: 4px; color: #5e6c84; font-size: 12px; margin: 12px;">
         ⏳ 正在加载数据...
       </div>
-      <div id="qa-panel-container" style="flex: 1; min-height: 0; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box; position: relative;"></div>
+      <div id="qa-panel-container" style="flex: 1; min-height: 0; overflow: hidden; display: none; padding: 0 12px 12px; width: 100%; min-width: 0; box-sizing: border-box;"></div>
     </div>
   `;
   
@@ -506,19 +506,19 @@ function toText(val: any): string {
   }
 }
 
-// 渲染问答面板
+// 渲染问答面板（纯 flex 布局：输入条 flex-shrink:0 固定在底部，不依赖绝对定位，避免 iframe/不同分辨率下错位）
 function renderQAPanel(tableInfo: any, container: HTMLElement) {
   container.innerHTML = `
-    <div class="qa-layout-root" style="display: flex; flex-direction: column; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; position: relative;">
+    <div class="qa-layout-root" style="display: flex; flex-direction: column; height: 100%; min-height: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
       <h1 style="flex-shrink: 0; color: #172b4d; margin: 0 0 6px 0; font-size: 18px; font-weight: 600; text-align: center;">AI 选品算命</h1>
-      <div class="qa-scroll" style="flex: 1; min-height: 0; overflow-y: auto; background: white; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); padding: 12px 12px 80px; position: relative;">
+      <div class="qa-scroll" style="flex: 1; min-height: 0; overflow-y: auto; background: white; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); padding: 12px;">
         <div id="qa-history" style="background: #fafbfc; border-radius: 4px; padding: 10px;">
           <div style="color: #5e6c84; font-size: 12px; text-align: center; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             已连接选品结果表，AI 将根据问题动态读取数据
           </div>
         </div>
       </div>
-      <div class="qa-input-bar" style="position: absolute; bottom: 0; left: 12px; right: 12px; display: flex; gap: 6px; padding: 12px; background: white; border-top: 1px solid #e2e8f0; border-radius: 0 0 6px 6px; z-index: 10;">
+      <div class="qa-input-bar" style="flex-shrink: 0; display: flex; gap: 6px; padding: 12px; background: white; border-top: 1px solid #e2e8f0; border-radius: 0 0 6px 6px;">
         <textarea 
           id="question-input" 
           placeholder="输入问题，如：推荐综合得分最高的10个产品"

@@ -1,5 +1,38 @@
 import { workspace, dashboard } from '@lark-base-open/js-sdk';
 import './style.css';
+// @ts-ignore 原始导入 Markdown 作为字符串，用于提示大模型
+import scoringKbRaw from '../选品建模知识库.md?raw';
+
+// 选品建模知识库（仅在需要解释规则/阈值时拼入 prompt）
+const SCORING_KB = scoringKbRaw;
+
+function shouldAttachKnowledge(question: string): boolean {
+  const q = question || '';
+  const keywords = [
+    '怎么算',
+    '怎么打分',
+    '打分规则',
+    '评分规则',
+    '评分逻辑',
+    '中轴线',
+    '阈值',
+    '分位',
+    'Q75',
+    'Q25',
+    '为什么是畅销爆品',
+    '为什么是稳健产品',
+    '为什么是淘汰产品',
+    '为什么是潜力产品',
+    '为什么是蓝海爆品',
+    '初步产品分类',
+    '最终产品分类',
+    '选品结论',
+    '优先级',
+    '评分怎么来的',
+    '打分怎么来的'
+  ];
+  return keywords.some((k) => q.includes(k));
+}
 
 // 常量定义
 const FIELD_NAMES = {
@@ -816,7 +849,12 @@ ${question}
 
 **重要：只返回 JSON，不要任何其他文字、说明、解释。**`;
 
+  const needKnowledge = shouldAttachKnowledge(question);
+  console.log('📚 本轮是否需要选品建模知识库（仅在解释规则/阈值时拼入）:', needKnowledge);
+
+  const start = performance.now();
   const response = await callMoonshotAPI(prompt, signal);
+  console.log('⏱️ 意图识别阶段耗时(ms):', Math.round(performance.now() - start));
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
@@ -864,7 +902,17 @@ ${question}
 - **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助用户分析选品数据的AI助手。我可以帮用户分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉用户想了解选品数据的哪些方面？"
 - 如果用户询问功能，可以提示："我可以帮用户分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉用户想了解什么？"`;
   
-  return await callMoonshotAPI(prompt, signal);
+  const finalPrompt = shouldAttachKnowledge(question)
+    ? `${prompt}
+
+【选品建模知识库（仅供你理解打分/分类逻辑，回答时用自己的话解释）】
+${SCORING_KB}`
+    : prompt;
+
+  const start = performance.now();
+  const answer = await callMoonshotAPI(finalPrompt, signal);
+  console.log('⏱️ 直接回答阶段耗时(ms):', Math.round(performance.now() - start));
+  return answer;
 }
 
 // 第二阶段：分析问题并制定查询计划
@@ -909,7 +957,16 @@ ${question}
 
 只返回 JSON 对象，不要其他文字。`;
 
-  const response = await callMoonshotAPI(prompt, signal);
+  const finalPrompt = shouldAttachKnowledge(question)
+    ? `${prompt}
+
+【选品建模知识库（仅供你理解打分/分类逻辑，帮助规划查询和解释原因）】
+${SCORING_KB}`
+    : prompt;
+
+  const start = performance.now();
+  const response = await callMoonshotAPI(finalPrompt, signal);
+  console.log('⏱️ 查询规划阶段耗时(ms):', Math.round(performance.now() - start));
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
@@ -1145,7 +1202,17 @@ ${JSON.stringify(dataForAI, null, 2)}
 【用户问题】
 ${question}`;
 
-  return await callMoonshotAPI(prompt, signal);
+  const finalPrompt = shouldAttachKnowledge(question)
+    ? `${prompt}
+
+【选品建模知识库（仅供你理解打分/分类逻辑，回答时用自己的话解释）】
+${SCORING_KB}`
+    : prompt;
+
+  const start = performance.now();
+  const answer = await callMoonshotAPI(finalPrompt, signal);
+  console.log('⏱️ 基于数据生成回答阶段耗时(ms):', Math.round(performance.now() - start));
+  return answer;
 }
 
 // 调用 Moonshot (Kimi) API（使用配置中的 apiUrl / apiKey）

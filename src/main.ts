@@ -715,45 +715,26 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
       return;
     }
     
-    // 第一步：意图识别（+ 若需查数据则合并出查询计划），省一轮 LLM
-    updateMessage(historyDiv, answerId, '🤖 正在分析问题意图与查询计划...');
+    // 第一步：意图识别，判断是否需要查询数据
+    updateMessage(historyDiv, answerId, '🤖 正在分析问题意图...');
     const tIntentStart = Date.now();
-    let needData: boolean;
-    let queryPlan: IntentAndPlanResult['plan'];
-
-    const quickIntent = quickInferIntent(question);
-    if (quickIntent) {
-      console.log('📚 规则意图识别命中:', quickIntent);
-      needData = quickIntent.needData;
-      if (needData) {
-        // 规则命中且需要数据：只补一次「查询计划」LLM
-        const tPlanStart = Date.now();
-        queryPlan = (await analyzeQuestionAndPlanQuery(question, tableInfo, signal)) as IntentAndPlanResult['plan'];
-        console.log('⏱ 查询计划耗时(ms):', Date.now() - tPlanStart);
-      } else {
-        queryPlan = undefined;
-      }
+    let intent = quickInferIntent(question);
+    if (intent) {
+      console.log('📚 规则意图识别命中:', intent);
     } else {
-      // 规则未命中：一次合并调用拿到意图 + 计划
-      const result = await analyzeIntentAndPlanQuery(question, tableInfo, signal);
-      needData = result.needData;
-      queryPlan = result.plan;
+      intent = await analyzeIntent(question, tableInfo, signal);
     }
-    console.log('⏱ 意图识别(含计划)耗时(ms):', Date.now() - tIntentStart);
+    console.log('⏱ 意图识别耗时(ms):', Date.now() - tIntentStart);
 
-    // 检查是否被中断
     if (signal.aborted) {
       updateMessage(historyDiv, answerId, '❌ 已中断');
       return;
     }
+    console.log('📋 意图识别结果:', intent);
 
-    console.log('📋 意图结果 needData:', needData, 'plan:', queryPlan);
-
-    if (!needData) {
-      // 不需要查询数据，直接回复
+    if (!intent.needData) {
       updateMessage(historyDiv, answerId, '💡 正在生成回复...');
       const answer = await generateDirectAnswer(question, tableInfo, signal);
-
       if (signal.aborted) {
         updateMessage(historyDiv, answerId, '❌ 已中断');
         return;
@@ -763,20 +744,17 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
       return;
     }
 
-    // 需要查询数据：使用已有 plan（合并调用或上面单独取的）
-    if (!queryPlan) {
-      queryPlan = {
-        description: '默认查询',
-        sortField: '综合得分',
-        sortOrder: 'desc',
-        limit: 20,
-        filterCategory: null,
-        minScore: null,
-        maxScore: null
-      };
+    // 需要查询数据，执行查询计划
+    updateMessage(historyDiv, answerId, '📊 正在分析查询计划...');
+    const tPlanStart = Date.now();
+    const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo, signal);
+    console.log('⏱ 查询计划耗时(ms):', Date.now() - tPlanStart);
+    if (signal.aborted) {
+      updateMessage(historyDiv, answerId, '❌ 已中断');
+      return;
     }
-    console.log('📋 执行查询计划:', queryPlan);
-    
+    console.log('📋 AI 查询计划:', queryPlan);
+
     updateMessage(historyDiv, answerId, '📊 正在获取数据...');
     const tFetchStart = Date.now();
     const queryData = await executeQueryPlan(queryPlan, tableInfo);
@@ -813,35 +791,15 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
   }
 }
 
-// 合并调用：意图识别 + 查询计划（needData 为 true 时同一次返回 plan），省一轮 LLM
-type IntentAndPlanResult = {
-  needData: boolean;
-  reason: string;
-  plan?: {
-    description: string;
-    sortField: string;
-    sortOrder: string;
-    limit: number;
-    filterCategory: string | null;
-    minScore: { field: string; value: number } | null;
-    maxScore: { field: string; value: number } | null;
-  };
-};
-
-async function analyzeIntentAndPlanQuery(question: string, tableInfo: any, signal?: AbortSignal): Promise<IntentAndPlanResult> {
+// 意图识别：判断是否需要查询数据
+async function analyzeIntent(question: string, tableInfo: any, signal?: AbortSignal): Promise<{ needData: boolean; reason: string }> {
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
-  const categoriesStr = Array.isArray(tableInfo.categories) ? tableInfo.categories.join(', ') : '';
-  const withCount = tableInfo.withComprehensiveCount ?? 0;
-  const avgComp = (tableInfo.avgComprehensive != null && !Number.isNaN(tableInfo.avgComprehensive)) ? Number(tableInfo.avgComprehensive).toFixed(2) : '0';
 
-  const prompt = `你是一个专业的亚马逊选品分析师助手。请完成两件事：1) 判断用户问题是否需要查询具体数据；2) 若需要，同时给出查询计划。
+  const prompt = `你是一个专业的亚马逊选品分析师助手。你的职责是帮助用户分析"选品结果表"的数据。
 
 【可用数据】
 表名：选品结果表
 总记录数：${tableInfo.totalCount}
-有综合得分的记录：${withCount}
-平均综合得分：${avgComp}
-产品分类：${categoriesStr}
 可用字段：
 ${fieldInfoStr}
 
@@ -849,72 +807,30 @@ ${fieldInfoStr}
 ${question}
 
 【任务】
-1. 判断 needData：打招呼/问功能/问概念/问方法 → needData: false；要求推荐、分析、统计、对比、具体数值 → needData: true。
-2. 若 needData 为 true，必须同时给出 plan（排序字段、顺序、条数、筛选等）。
+仔细分析用户的问题，判断是否需要查询具体的数据记录来回答。
 
-**返回格式（只返回一个 JSON 对象）：**
+**不需要查询数据（needData: false）**：打招呼、问功能、问概念、问方法、闲聊。
+**需要查询数据（needData: true）**：要求推荐/分析/统计/对比、询问具体数值或哪些产品。
 
-当不需要查数据时：
-{"needData":false,"reason":"用户打招呼，不需要查询数据"}
+**返回格式**：只返回一个 JSON 对象。
+{"needData": false, "reason": "用户打招呼，不需要查询数据"}
+或
+{"needData": true, "reason": "用户要求推荐产品，需要查询数据"}
 
-当需要查数据时（必须带 plan）：
-{
-  "needData": true,
-  "reason": "用户要求推荐产品，需要查询数据",
-  "plan": {
-    "description": "查询计划简短描述",
-    "sortField": "综合得分",
-    "sortOrder": "desc",
-    "limit": 20,
-    "filterCategory": null,
-    "minScore": null,
-    "maxScore": null
-  }
-}
-
-**plan 规则**：sortField 用表字段名（如：综合得分、需求趋势得分）；limit 按问题（Top10→10，推荐产品→20-30，分析整体→200）；仅当用户明确要求某分类时设 filterCategory。只返回 JSON，不要其他文字。`;
+只返回 JSON，不要其他文字。`;
 
   const response = await callMoonshotAPI(prompt, signal);
-
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : response;
-    const parsed = JSON.parse(jsonStr);
-
-    const needData = parsed.needData === true;
-    const reason = typeof parsed.reason === 'string' ? parsed.reason : '需要查询数据';
-
-    if (!needData) {
-      return { needData: false, reason };
-    }
-
-    const rawPlan = parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : {};
-    const plan = {
-      description: rawPlan.description || '查询数据',
-      sortField: rawPlan.sortField || '综合得分',
-      sortOrder: rawPlan.sortOrder === 'asc' ? 'asc' : 'desc',
-      limit: typeof rawPlan.limit === 'number' && rawPlan.limit > 0 ? Math.min(rawPlan.limit, 500) : 20,
-      filterCategory: rawPlan.filterCategory ?? null,
-      minScore: rawPlan.minScore && typeof rawPlan.minScore === 'object' ? rawPlan.minScore : null,
-      maxScore: rawPlan.maxScore && typeof rawPlan.maxScore === 'object' ? rawPlan.maxScore : null
-    };
-
-    return { needData: true, reason, plan };
-  } catch (e) {
-    console.warn('解析合并意图+计划失败，默认需要查询数据并使用默认计划:', e);
+    const intent = JSON.parse(jsonStr);
     return {
-      needData: true,
-      reason: '解析失败，默认查询数据',
-      plan: {
-        description: '默认查询',
-        sortField: '综合得分',
-        sortOrder: 'desc',
-        limit: 20,
-        filterCategory: null,
-        minScore: null,
-        maxScore: null
-      }
+      needData: intent.needData === true,
+      reason: intent.reason || '需要查询数据'
     };
+  } catch (e) {
+    console.warn('解析意图识别失败，默认需要查询数据:', e);
+    return { needData: true, reason: '解析失败，默认查询数据' };
   }
 }
 

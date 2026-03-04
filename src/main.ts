@@ -1159,8 +1159,7 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
             content: prompt
           }
         ],
-        // 兼容主流模型默认习惯，保持 temperature = 1，仅缩短最大输出长度加速
-        temperature: 1,
+        // 不强行指定 temperature，交给各模型使用各自默认值，提升兼容性
         max_tokens: 800,
         // 默认尝试关闭思考模式；不支持该字段的模型会忽略
         thinking: { type: 'disabled' }

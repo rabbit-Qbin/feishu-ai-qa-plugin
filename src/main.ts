@@ -1161,7 +1161,9 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
         ],
         // 兼容主流模型默认习惯，保持 temperature = 1，仅缩短最大输出长度加速
         temperature: 1,
-        max_tokens: 800
+        max_tokens: 800,
+        // 默认尝试关闭思考模式；不支持该字段的模型会忽略
+        thinking: { type: 'disabled' }
       }),
       signal: combinedSignal
     });
@@ -1181,26 +1183,37 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
     
     // 兼容不同模型的返回结构：content 可能是字符串，也可能是片段数组
     const choice = result.choices && result.choices[0];
-    let content: any = choice?.message?.content;
+    const message: any = choice?.message || {};
+    let content: any = message.content;
 
     if (Array.isArray(content)) {
       content = content
         .map((part: any) => {
           if (typeof part === 'string') return part;
           if (part && typeof part === 'object') {
-            return part.text || part.content || part.value || '';
+            // 兼容 Kimi 可能返回的 { type: 'text', text: { value: '...' } } 结构
+            if (typeof part.text === 'string') return part.text;
+            if (part.text && typeof part.text.value === 'string') return part.text.value;
+            if (typeof part.content === 'string') return part.content;
+            if (typeof part.value === 'string') return part.value;
           }
           return '';
         })
         .join('');
     }
 
-    if (typeof content !== 'string' || !content.trim()) {
-      console.warn('⚠️ AI 返回内容为空或非标准字符串结构，使用兜底提示。完整结果：', result);
-      return 'AI 已成功响应，但本次未返回可读文本内容，请稍后重试或换个问法。';
+    // 只使用 content 作为对用户的回答，不展示思考链 reasoning_content
+    if (typeof content === 'string' && content.trim()) {
+      return content;
     }
 
-    return content;
+    if (message.reasoning_content) {
+      console.warn('⚠️ 检测到 reasoning_content，但根据配置不会直接展示思考链。完整结果：', result);
+    } else {
+      console.warn('⚠️ AI 返回内容为空或非标准字符串结构，使用兜底提示。完整结果：', result);
+    }
+
+    return 'AI 已成功响应，但本次未返回可读文本内容，请稍后重试或换个问法。';
   } catch (error: any) {
     console.error('Moonshot API 调用失败:', error);
     

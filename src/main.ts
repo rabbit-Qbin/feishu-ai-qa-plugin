@@ -1,38 +1,5 @@
 import { workspace, dashboard } from '@lark-base-open/js-sdk';
 import './style.css';
-// @ts-ignore 原始导入 Markdown 作为字符串，用于提示大模型
-import scoringKbRaw from '../选品建模知识库.md?raw';
-
-// 选品建模知识库（仅在需要解释规则/阈值时拼入 prompt）
-const SCORING_KB = scoringKbRaw;
-
-function shouldAttachKnowledge(question: string): boolean {
-  const q = question || '';
-  const keywords = [
-    '怎么算',
-    '怎么打分',
-    '打分规则',
-    '评分规则',
-    '评分逻辑',
-    '中轴线',
-    '阈值',
-    '分位',
-    'Q75',
-    'Q25',
-    '为什么是畅销爆品',
-    '为什么是稳健产品',
-    '为什么是淘汰产品',
-    '为什么是潜力产品',
-    '为什么是蓝海爆品',
-    '初步产品分类',
-    '最终产品分类',
-    '选品结论',
-    '优先级',
-    '评分怎么来的',
-    '打分怎么来的'
-  ];
-  return keywords.some((k) => q.includes(k));
-}
 
 // 常量定义
 const FIELD_NAMES = {
@@ -686,6 +653,31 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
 let currentAbortController: AbortController | null = null;
 let isAsking = false;
 
+// 规则快速判断：根据关键词粗分「需要查数据」与否，命中则跳过一轮 LLM 意图识别，加速常见问题
+function quickInferIntent(question: string): { needData: boolean; reason: string } | null {
+  const q = question.toLowerCase();
+  // 典型「问规则/阈值/分类原因」→ 通常不需要查数据，只解释逻辑
+  const ruleKeywords = ['规则', '打分', '怎么算', '阈值', '中轴', '四象限', '为什么是', '为什么是畅销爆品', '分类逻辑'];
+  if (ruleKeywords.some(k => question.includes(k))) {
+    return {
+      needData: false,
+      reason: '命中规则/阈值/分类解释类问题，直接用知识库回答即可'
+    };
+  }
+  // 典型「推荐/排序/前N/综合得分/销量/利润」→ 必须查数据
+  const dataKeywords = [
+    'top', '前', '推荐', '综合得分', '需求趋势', '竞争强度', '利润空间', '销量',
+    'bsr', '毛利', 'fba', 'asin', '产品', '哪个最好', '挑几个', '选几个', '优先级'
+  ];
+  if (dataKeywords.some(k => q.includes(k))) {
+    return {
+      needData: true,
+      reason: '命中推荐/排序/评估类关键词，需要查询数据'
+    };
+  }
+  return null;
+}
+
 // 调用 AI API
 async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) {
   const askBtn = document.getElementById('ask-btn') as HTMLButtonElement;
@@ -723,48 +715,72 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
       return;
     }
     
-    // 第一步：意图识别，判断是否需要查询数据
-    updateMessage(historyDiv, answerId, '🤖 正在分析问题意图...');
-    const intent = await analyzeIntent(question, tableInfo, signal);
-    
+    // 第一步：意图识别（+ 若需查数据则合并出查询计划），省一轮 LLM
+    updateMessage(historyDiv, answerId, '🤖 正在分析问题意图与查询计划...');
+    const tIntentStart = Date.now();
+    let needData: boolean;
+    let queryPlan: IntentAndPlanResult['plan'];
+
+    const quickIntent = quickInferIntent(question);
+    if (quickIntent) {
+      console.log('📚 规则意图识别命中:', quickIntent);
+      needData = quickIntent.needData;
+      if (needData) {
+        // 规则命中且需要数据：只补一次「查询计划」LLM
+        const tPlanStart = Date.now();
+        queryPlan = (await analyzeQuestionAndPlanQuery(question, tableInfo, signal)) as IntentAndPlanResult['plan'];
+        console.log('⏱ 查询计划耗时(ms):', Date.now() - tPlanStart);
+      } else {
+        queryPlan = undefined;
+      }
+    } else {
+      // 规则未命中：一次合并调用拿到意图 + 计划
+      const result = await analyzeIntentAndPlanQuery(question, tableInfo, signal);
+      needData = result.needData;
+      queryPlan = result.plan;
+    }
+    console.log('⏱ 意图识别(含计划)耗时(ms):', Date.now() - tIntentStart);
+
     // 检查是否被中断
     if (signal.aborted) {
       updateMessage(historyDiv, answerId, '❌ 已中断');
       return;
     }
-    
-    console.log('📋 意图识别结果:', intent);
-    
-    if (!intent.needData) {
+
+    console.log('📋 意图结果 needData:', needData, 'plan:', queryPlan);
+
+    if (!needData) {
       // 不需要查询数据，直接回复
       updateMessage(historyDiv, answerId, '💡 正在生成回复...');
       const answer = await generateDirectAnswer(question, tableInfo, signal);
-      
-      // 检查是否被中断
+
       if (signal.aborted) {
         updateMessage(historyDiv, answerId, '❌ 已中断');
         return;
       }
-      
       updateMessage(historyDiv, answerId, answer);
       questionInput.value = '';
       return;
     }
-    
-    // 需要查询数据，执行查询计划
-    updateMessage(historyDiv, answerId, '📊 正在分析查询计划...');
-    const queryPlan = await analyzeQuestionAndPlanQuery(question, tableInfo, signal);
-    
-    // 检查是否被中断
-    if (signal.aborted) {
-      updateMessage(historyDiv, answerId, '❌ 已中断');
-      return;
+
+    // 需要查询数据：使用已有 plan（合并调用或上面单独取的）
+    if (!queryPlan) {
+      queryPlan = {
+        description: '默认查询',
+        sortField: '综合得分',
+        sortOrder: 'desc',
+        limit: 20,
+        filterCategory: null,
+        minScore: null,
+        maxScore: null
+      };
     }
-    
-    console.log('📋 AI 查询计划:', queryPlan);
+    console.log('📋 执行查询计划:', queryPlan);
     
     updateMessage(historyDiv, answerId, '📊 正在获取数据...');
+    const tFetchStart = Date.now();
     const queryData = await executeQueryPlan(queryPlan, tableInfo);
+    console.log('⏱ 拉取数据耗时(ms):', Date.now() - tFetchStart);
     
     // 检查是否被中断
     if (signal.aborted) {
@@ -775,7 +791,9 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
     console.log(`✅ 查询完成，获取 ${queryData.length} 条数据`);
     
     updateMessage(historyDiv, answerId, '💡 正在基于数据生成分析...');
+    const tAnswerStart = Date.now();
     const answer = await generateAnswer(question, queryData, signal);
+    console.log('⏱ 生成回答耗时(ms):', Date.now() - tAnswerStart);
     
     // 检查是否被中断
     if (signal.aborted) {
@@ -795,15 +813,35 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
   }
 }
 
-// 第一步：意图识别，判断是否需要查询数据
-async function analyzeIntent(question: string, tableInfo: any, signal?: AbortSignal): Promise<{needData: boolean, reason: string}> {
+// 合并调用：意图识别 + 查询计划（needData 为 true 时同一次返回 plan），省一轮 LLM
+type IntentAndPlanResult = {
+  needData: boolean;
+  reason: string;
+  plan?: {
+    description: string;
+    sortField: string;
+    sortOrder: string;
+    limit: number;
+    filterCategory: string | null;
+    minScore: { field: string; value: number } | null;
+    maxScore: { field: string; value: number } | null;
+  };
+};
+
+async function analyzeIntentAndPlanQuery(question: string, tableInfo: any, signal?: AbortSignal): Promise<IntentAndPlanResult> {
   const fieldInfoStr = tableInfo.fieldInfo?.map((f: any) => `- ${f.name} (类型: ${f.type || '未知'})`).join('\n') || '字段信息加载中...';
-  
-  const prompt = `你是一个专业的亚马逊选品分析师助手。你的职责是帮助用户分析"选品结果表"的数据。
+  const categoriesStr = Array.isArray(tableInfo.categories) ? tableInfo.categories.join(', ') : '';
+  const withCount = tableInfo.withComprehensiveCount ?? 0;
+  const avgComp = (tableInfo.avgComprehensive != null && !Number.isNaN(tableInfo.avgComprehensive)) ? Number(tableInfo.avgComprehensive).toFixed(2) : '0';
+
+  const prompt = `你是一个专业的亚马逊选品分析师助手。请完成两件事：1) 判断用户问题是否需要查询具体数据；2) 若需要，同时给出查询计划。
 
 【可用数据】
 表名：选品结果表
 总记录数：${tableInfo.totalCount}
+有综合得分的记录：${withCount}
+平均综合得分：${avgComp}
+产品分类：${categoriesStr}
 可用字段：
 ${fieldInfoStr}
 
@@ -811,65 +849,71 @@ ${fieldInfoStr}
 ${question}
 
 【任务】
-仔细分析用户的问题，判断是否需要查询具体的数据记录来回答。
+1. 判断 needData：打招呼/问功能/问概念/问方法 → needData: false；要求推荐、分析、统计、对比、具体数值 → needData: true。
+2. 若 needData 为 true，必须同时给出 plan（排序字段、顺序、条数、筛选等）。
 
-**重要判断标准（严格按照以下规则）：**
+**返回格式（只返回一个 JSON 对象）：**
 
-**不需要查询数据（needData: false）的情况：**
-1. 打招呼、问候（如：你好、hello、hi、您好、在吗）
-2. 询问插件功能、如何使用（如：你能做什么、怎么用、功能是什么、如何使用）
-3. 询问概念性问题（如：什么是综合得分、什么是BSR、什么是需求趋势得分、综合得分是什么意思）
-4. 询问一般性建议（不涉及具体数据，如：如何选品、选品要注意什么、选品有什么技巧）
-5. 闲聊、非业务问题（如：今天天气怎么样、你会什么、你叫什么名字）
+当不需要查数据时：
+{"needData":false,"reason":"用户打招呼，不需要查询数据"}
 
-**需要查询数据（needData: true）的情况：**
-1. 要求推荐产品（如：推荐综合得分最高的10个产品、推荐利润空间得分高的产品、给我推荐一些产品）
-2. 要求分析具体数据（如：分析畅销爆品的特点、分析稳健产品的数据、畅销爆品有什么特点）
-3. 要求统计信息（如：有多少个产品是稳健产品、畅销爆品有多少个、统计一下各类产品的数量）
-4. 要求对比分析（如：对比不同分类的产品、对比需求趋势得分和竞争强度得分、对比一下各类产品）
-5. 询问具体数值（如：平均综合得分是多少、最高利润空间得分是多少、综合得分最高是多少）
-
-**判断原则（必须严格遵守）：**
-- 如果用户只是打招呼、问功能、问概念、问方法，**必须返回 needData: false**
-- 只有明确要求查看数据、推荐产品、分析数据时，才返回 needData: true
-- 如果问题模糊，但包含"推荐"、"分析"、"统计"、"对比"、"多少"、"哪些"等关键词，返回 needData: true
-
-**返回格式（必须严格）：**
-只返回 JSON 对象，格式如下：
-{
-  "needData": false,
-  "reason": "用户打招呼，不需要查询数据"
-}
-
-或者：
+当需要查数据时（必须带 plan）：
 {
   "needData": true,
-  "reason": "用户要求推荐产品，需要查询数据"
+  "reason": "用户要求推荐产品，需要查询数据",
+  "plan": {
+    "description": "查询计划简短描述",
+    "sortField": "综合得分",
+    "sortOrder": "desc",
+    "limit": 20,
+    "filterCategory": null,
+    "minScore": null,
+    "maxScore": null
+  }
 }
 
-**重要：只返回 JSON，不要任何其他文字、说明、解释。**`;
+**plan 规则**：sortField 用表字段名（如：综合得分、需求趋势得分）；limit 按问题（Top10→10，推荐产品→20-30，分析整体→200）；仅当用户明确要求某分类时设 filterCategory。只返回 JSON，不要其他文字。`;
 
-  const needKnowledge = shouldAttachKnowledge(question);
-  console.log('📚 本轮是否需要选品建模知识库（仅在解释规则/阈值时拼入）:', needKnowledge);
-
-  const start = performance.now();
   const response = await callMoonshotAPI(prompt, signal);
-  console.log('⏱️ 意图识别阶段耗时(ms):', Math.round(performance.now() - start));
-  
+
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : response;
-    const intent = JSON.parse(jsonStr);
-    
-    return {
-      needData: intent.needData === true,
-      reason: intent.reason || '需要查询数据'
+    const parsed = JSON.parse(jsonStr);
+
+    const needData = parsed.needData === true;
+    const reason = typeof parsed.reason === 'string' ? parsed.reason : '需要查询数据';
+
+    if (!needData) {
+      return { needData: false, reason };
+    }
+
+    const rawPlan = parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : {};
+    const plan = {
+      description: rawPlan.description || '查询数据',
+      sortField: rawPlan.sortField || '综合得分',
+      sortOrder: rawPlan.sortOrder === 'asc' ? 'asc' : 'desc',
+      limit: typeof rawPlan.limit === 'number' && rawPlan.limit > 0 ? Math.min(rawPlan.limit, 500) : 20,
+      filterCategory: rawPlan.filterCategory ?? null,
+      minScore: rawPlan.minScore && typeof rawPlan.minScore === 'object' ? rawPlan.minScore : null,
+      maxScore: rawPlan.maxScore && typeof rawPlan.maxScore === 'object' ? rawPlan.maxScore : null
     };
+
+    return { needData: true, reason, plan };
   } catch (e) {
-    console.warn('解析意图识别失败，默认需要查询数据:', e);
+    console.warn('解析合并意图+计划失败，默认需要查询数据并使用默认计划:', e);
     return {
       needData: true,
-      reason: '解析失败，默认查询数据'
+      reason: '解析失败，默认查询数据',
+      plan: {
+        description: '默认查询',
+        sortField: '综合得分',
+        sortOrder: 'desc',
+        limit: 20,
+        filterCategory: null,
+        minScore: null,
+        maxScore: null
+      }
     };
   }
 }
@@ -902,17 +946,7 @@ ${question}
 - **重要**：如果用户的问题与选品分析无关（如：天气、闲聊、其他业务），请礼貌地提醒："我是专门帮助用户分析选品数据的AI助手。我可以帮用户分析选品结果表中的数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、对比产品的各项指标等。请告诉用户想了解选品数据的哪些方面？"
 - 如果用户询问功能，可以提示："我可以帮用户分析选品数据，例如：推荐综合得分最高的产品、分析不同分类的产品特点、统计各类产品的数量、对比产品的各项指标等。请告诉用户想了解什么？"`;
   
-  const finalPrompt = shouldAttachKnowledge(question)
-    ? `${prompt}
-
-【选品建模知识库（仅供你理解打分/分类逻辑，回答时用自己的话解释）】
-${SCORING_KB}`
-    : prompt;
-
-  const start = performance.now();
-  const answer = await callMoonshotAPI(finalPrompt, signal);
-  console.log('⏱️ 直接回答阶段耗时(ms):', Math.round(performance.now() - start));
-  return answer;
+  return await callMoonshotAPI(prompt, signal);
 }
 
 // 第二阶段：分析问题并制定查询计划
@@ -951,22 +985,13 @@ ${question}
 1. **limit 根据用户意图决定**：
    - 用户问"Top10"、"前10名" → limit=10
    - 用户问"推荐产品"、"好的产品" → limit=20-30
-   - 用户问"分析整体"、"所有产品" → limit=500
+   - 用户问"分析整体"、"所有产品" → limit=200
 2. **系统会自动获取所有字段**（ASIN、商品标题、月销量、月销量增长率、月销售额、小类BSR、大类BSR、评分数、卖家数、上架天数、LQS、毛利率、FBA费用、四维度得分等），你不需要指定字段
 3. 只有当用户明确要求筛选某个分类时，才设置 filterCategory
 
 只返回 JSON 对象，不要其他文字。`;
 
-  const finalPrompt = shouldAttachKnowledge(question)
-    ? `${prompt}
-
-【选品建模知识库（仅供你理解打分/分类逻辑，帮助规划查询和解释原因）】
-${SCORING_KB}`
-    : prompt;
-
-  const start = performance.now();
-  const response = await callMoonshotAPI(finalPrompt, signal);
-  console.log('⏱️ 查询规划阶段耗时(ms):', Math.round(performance.now() - start));
+  const response = await callMoonshotAPI(prompt, signal);
   
   try {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
@@ -1117,19 +1142,24 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
 }
 
 // 第三阶段：生成回答
+const IGNORE_KEYS_FOR_AI = new Set([
+  'AI 选品解读',
+  'AI 选品建议',
+  'AI 选品分析'
+]);
+
 async function generateAnswer(question: string, queryData: any[], signal?: AbortSignal): Promise<string> {
   console.log(`🤖 准备生成回答，输入数据量: ${queryData.length}`);
   
-  // 🔥 直接传递所有字段给 AI（不做任何过滤），确保专业分析
+  // 🔥 传递给 AI 的字段做轻量过滤：去掉长文本 AI 字段，减少 token 数量，加快生成
   const dataForAI = queryData.map(item => {
-    // 确保关键字段不为 null/undefined
+    // 确保关键字段不为 null/undefined，同时过滤掉不必要的大字段
     const result: any = {};
-    for (const key of Object.keys(item)) {
-      const value = item[key];
-      if (value !== null && value !== undefined) {
-        result[key] = value;
-      }
-    }
+    Object.entries(item).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      if (IGNORE_KEYS_FOR_AI.has(key)) return;
+      result[key] = value;
+    });
     return result;
   });
   
@@ -1202,17 +1232,7 @@ ${JSON.stringify(dataForAI, null, 2)}
 【用户问题】
 ${question}`;
 
-  const finalPrompt = shouldAttachKnowledge(question)
-    ? `${prompt}
-
-【选品建模知识库（仅供你理解打分/分类逻辑，回答时用自己的话解释）】
-${SCORING_KB}`
-    : prompt;
-
-  const start = performance.now();
-  const answer = await callMoonshotAPI(finalPrompt, signal);
-  console.log('⏱️ 基于数据生成回答阶段耗时(ms):', Math.round(performance.now() - start));
-  return answer;
+  return await callMoonshotAPI(prompt, signal);
 }
 
 // 调用 Moonshot (Kimi) API（使用配置中的 apiUrl / apiKey）
@@ -1253,8 +1273,9 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
             content: prompt
           }
         ],
+        // 兼容主流模型默认习惯，保持 temperature = 1，仅缩短最大输出长度加速
         temperature: 1,
-        max_tokens: 2000
+        max_tokens: 800
       }),
       signal: combinedSignal
     });

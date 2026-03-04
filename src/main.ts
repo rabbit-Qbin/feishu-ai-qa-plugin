@@ -653,31 +653,6 @@ function renderQAPanel(tableInfo: any, container: HTMLElement) {
 let currentAbortController: AbortController | null = null;
 let isAsking = false;
 
-// 规则快速判断：根据关键词粗分「需要查数据」与否，命中则跳过一轮 LLM 意图识别，加速常见问题
-function quickInferIntent(question: string): { needData: boolean; reason: string } | null {
-  const q = question.toLowerCase();
-  // 典型「问规则/阈值/分类原因」→ 通常不需要查数据，只解释逻辑
-  const ruleKeywords = ['规则', '打分', '怎么算', '阈值', '中轴', '四象限', '为什么是', '为什么是畅销爆品', '分类逻辑'];
-  if (ruleKeywords.some(k => question.includes(k))) {
-    return {
-      needData: false,
-      reason: '命中规则/阈值/分类解释类问题，直接用知识库回答即可'
-    };
-  }
-  // 典型「推荐/排序/前N/综合得分/销量/利润」→ 必须查数据
-  const dataKeywords = [
-    'top', '前', '推荐', '综合得分', '需求趋势', '竞争强度', '利润空间', '销量',
-    'bsr', '毛利', 'fba', 'asin', '产品', '哪个最好', '挑几个', '选几个', '优先级'
-  ];
-  if (dataKeywords.some(k => q.includes(k))) {
-    return {
-      needData: true,
-      reason: '命中推荐/排序/评估类关键词，需要查询数据'
-    };
-  }
-  return null;
-}
-
 // 调用 AI API
 async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) {
   const askBtn = document.getElementById('ask-btn') as HTMLButtonElement;
@@ -715,15 +690,10 @@ async function askAI(question: string, tableInfo: any, historyDiv: HTMLElement) 
       return;
     }
     
-    // 第一步：意图识别，判断是否需要查询数据
+    // 第一步：意图识别，判断是否需要查询数据（不再使用规则匹配，统一走 LLM）
     updateMessage(historyDiv, answerId, '🤖 正在分析问题意图...');
     const tIntentStart = Date.now();
-    let intent = quickInferIntent(question);
-    if (intent) {
-      console.log('📚 规则意图识别命中:', intent);
-    } else {
-      intent = await analyzeIntent(question, tableInfo, signal);
-    }
+    const intent = await analyzeIntent(question, tableInfo, signal);
     console.log('⏱ 意图识别耗时(ms):', Date.now() - tIntentStart);
 
     if (signal.aborted) {
@@ -1209,13 +1179,28 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
     const result = await response.json();
     console.log('📡 API 响应数据:', result);
     
-    const answer = result.choices?.[0]?.message?.content || '无法生成回答';
-    
-    if (!answer || answer === '无法生成回答') {
-      throw new Error('AI 返回空回答');
+    // 兼容不同模型的返回结构：content 可能是字符串，也可能是片段数组
+    const choice = result.choices && result.choices[0];
+    let content: any = choice?.message?.content;
+
+    if (Array.isArray(content)) {
+      content = content
+        .map((part: any) => {
+          if (typeof part === 'string') return part;
+          if (part && typeof part === 'object') {
+            return part.text || part.content || part.value || '';
+          }
+          return '';
+        })
+        .join('');
     }
-    
-    return answer;
+
+    if (typeof content !== 'string' || !content.trim()) {
+      console.warn('⚠️ AI 返回内容为空或非标准字符串结构，使用兜底提示。完整结果：', result);
+      return 'AI 已成功响应，但本次未返回可读文本内容，请稍后重试或换个问法。';
+    }
+
+    return content;
   } catch (error: any) {
     console.error('Moonshot API 调用失败:', error);
     

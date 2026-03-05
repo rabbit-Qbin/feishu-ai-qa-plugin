@@ -31,6 +31,9 @@ const FIELD_NAMES = {
 // 🔥 所有字段列表（用于全量数据抓取）
 const ALL_FIELDS = Object.values(FIELD_NAMES);
 
+// 全量数据内存缓存（只在当前插件会话内有效）
+let cachedFullData: any[] | null = null;
+
 // Moonshot (Kimi) API 默认配置（可被 customConfig 覆盖）
 const MOONSHOT_API_KEY = '';
 const MOONSHOT_API_URL = 'https://api.moonshot.cn/v1/chat/completions';
@@ -125,6 +128,10 @@ async function renderCreateConfigState(app: HTMLElement) {
   // 预填大模型配置（若有已保存的）
   try {
     const config: any = await dashboard.getConfig();
+    console.log('📥 配置态 getConfig 返回:', {
+      dataConditions: config?.dataConditions,
+      customConfig: config?.customConfig ? { apiUrl: config.customConfig.apiUrl, model: config.customConfig.model, apiKey: config.customConfig.apiKey ? '***' : '' } : null
+    });
     const cc = config?.customConfig || {};
     const urlInput = document.getElementById('config-api-url') as HTMLInputElement;
     const keyInput = document.getElementById('config-api-key') as HTMLInputElement;
@@ -223,10 +230,14 @@ async function renderViewState(app: HTMLElement) {
   
   try {
     const config: any = await dashboard.getConfig();
+    console.log('📥 展示态 getConfig 返回:', {
+      dataConditions: config?.dataConditions,
+      customConfig: config?.customConfig ? { apiUrl: config.customConfig.apiUrl, model: config.customConfig.model, apiKey: config.customConfig.apiKey ? '***' : '' } : null
+    });
     if (!config?.dataConditions?.[0]?.baseToken || !config?.dataConditions?.[0]?.tableId) {
       throw new Error('未找到保存的配置，请重新配置插件');
     }
-    
+
     // 使用配置中的大模型参数（Create 状态传入的 customConfig）
     const cc = config.customConfig || {};
     currentApiConfig = {
@@ -282,22 +293,14 @@ async function renderViewState(app: HTMLElement) {
 }
 
 
-// 保存配置（必须保存 dataConditions）
+// 保存配置（dataConditions 优先用当前找到的表，否则用已保存的，保证只改 API 时也能刷新写入）
 async function saveConfig() {
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const status = document.getElementById('status')!;
-  
-  const foundTableInfo = (window as any).__foundTableInfo;
-  
-  if (!foundTableInfo || !foundTableInfo.baseToken || !foundTableInfo.tableId) {
-    alert('请先找到"选品结果"表');
-    return;
-  }
-  
   saveBtn.disabled = true;
   saveBtn.textContent = '保存中...';
   status.textContent = '⏳ 正在保存配置...';
-  
+
   try {
     const apiUrlInput = document.getElementById('config-api-url') as HTMLInputElement;
     const apiKeyInput = document.getElementById('config-api-key') as HTMLInputElement;
@@ -305,31 +308,47 @@ async function saveConfig() {
     const apiUrl = (apiUrlInput?.value || '').trim() || MOONSHOT_API_URL;
     const apiKey = (apiKeyInput?.value || '').trim();
     const model = (modelInput?.value || '').trim() || MOONSHOT_MODEL;
-    
-    // 构建 dataConditions（必须包含 baseToken 和 tableId）
-    const dataConditions = [{
-      baseToken: foundTableInfo.baseToken,
-      tableId: foundTableInfo.tableId
-    }];
-    
-    console.log('💾 保存 dataConditions:', JSON.stringify(dataConditions, null, 2));
-    
-    // 保存配置（含大模型：API 地址、API Key、模型名称）
+
+    // 先读取已有配置，避免覆盖 dataConditions
+    let dataConditions: Array<{ baseToken: string; tableId: string }> = [];
+    try {
+      const config: any = await dashboard.getConfig();
+      console.log('📥 保存前 getConfig 返回:', {
+        dataConditions: config?.dataConditions,
+        customConfig: config?.customConfig ? { apiUrl: config.customConfig.apiUrl, model: config.customConfig.model, apiKey: config.customConfig.apiKey ? '***' : '' } : null
+      });
+      if (Array.isArray(config?.dataConditions) && config.dataConditions.length > 0) {
+        dataConditions = config.dataConditions;
+      }
+    } catch (_) {}
+
+    const foundTableInfo = (window as any).__foundTableInfo;
+    if (foundTableInfo?.baseToken && foundTableInfo?.tableId) {
+      dataConditions = [{ baseToken: foundTableInfo.baseToken, tableId: foundTableInfo.tableId }];
+      console.log('💾 保存 dataConditions（来自当前找到的表）:', JSON.stringify(dataConditions, null, 2));
+    } else if (dataConditions.length === 0) {
+      status.textContent = '请先等待找到「选品结果」表后再保存';
+      status.style.background = '#fff4e5';
+      status.style.color = '#bf2600';
+      saveBtn.disabled = false;
+      saveBtn.textContent = '确定';
+      return;
+    }
+
     await dashboard.saveConfig({
       dataConditions,
       customConfig: { apiUrl, apiKey, model }
     });
-    
+
+    console.log('💾 已保存 customConfig:', { apiUrl, apiKey: apiKey ? apiKey.slice(0, 4) + '***' : '', model });
+
     status.textContent = '✅ 配置已保存';
     status.style.background = '#e3fcef';
     status.style.color = '#006644';
-    
-    // 关闭配置弹窗（进入 View 状态）
     setTimeout(() => {
       saveBtn.disabled = false;
       saveBtn.textContent = '确定';
     }, 1000);
-    
   } catch (error: any) {
     console.error('保存配置失败:', error);
     status.textContent = `❌ 保存失败: ${error?.message || error}`;
@@ -912,13 +931,8 @@ ${question}
   }
 }
 
-// 第二阶段：执行查询计划
-async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
-  const { table, fieldIds } = tableInfo;
-  
-  console.log(`🎯 查询策略: 获取 ${plan.limit} 条数据的所有详细字段`);
-  
-  // 获取记录
+// 全量拉取并缓存所有记录 + 所有字段（只执行一次）
+async function loadAllDataForCache(table: any, fieldIds: Record<string, string>): Promise<any[]> {
   const allRecords: any[] = [];
   let pageToken: number | undefined = undefined;
   const pageSize = 200;
@@ -933,19 +947,22 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
       allRecords.push(...Array.from(result.records));
     }
     
-    pageToken = result.hasMore ? (typeof result.pageToken === 'number' ? result.pageToken : parseInt(String(result.pageToken))) : undefined;
-  } while (pageToken && allRecords.length < Math.max(plan.limit * 2, 500)); // 多抓一些用于排序
+    pageToken = result.hasMore
+      ? (typeof result.pageToken === 'number' ? result.pageToken : parseInt(String(result.pageToken)))
+      : undefined;
+  } while (pageToken);
   
-  console.log(`📋 获取 ${allRecords.length} 条记录，开始处理...`);
+  console.log(`📋 全量缓存：共获取 ${allRecords.length} 条记录，开始解析所有字段...`);
   
-  // 🔥 强制使用所有字段，确保完整的专业分析
+  // 强制使用所有字段，确保完整的专业分析
   const allFieldNames = ALL_FIELDS;
   console.log(`📊 将提取 ${allFieldNames.length} 个字段: ${allFieldNames.slice(0, 5).join(', ')}...`);
   
   const data: any[] = [];
   const batchSize = 50;
   
-  for (let i = 0; i < allRecords.length && data.length < plan.limit * 1.5; i += batchSize) {
+  // 全量遍历所有记录，构建完整缓存（不再依赖查询计划的 limit）
+  for (let i = 0; i < allRecords.length; i += batchSize) {
     const batch = allRecords.slice(i, i + batchSize);
     const batchData = await Promise.all(
       batch.map(async (record: any) => {
@@ -977,7 +994,37 @@ async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
     data.push(...batchData.filter(d => d !== null));
   }
   
-  let filteredData = data;
+  console.log(`✅ 全量缓存解析完成，共缓存 ${data.length} 条记录`);
+  
+  // 🔥 调试：打印前 3 条数据的关键字段
+  if (data.length > 0) {
+    console.log('📊 全量缓存数据示例（前3条）:');
+    data.slice(0, 3).forEach((item, idx) => {
+      console.log(
+        `  [${idx + 1}] ASIN: ${item['ASIN']}, 商品标题: ${item['商品标题']}, 需求: ${item['需求趋势得分']}, 竞争: ${item['竞争强度得分']}, 利润: ${item['利润空间得分']}, 综合: ${item['综合得分']}`
+      );
+    });
+  }
+  
+  return data;
+}
+
+// 第二阶段：执行查询计划（基于内存缓存做筛选/排序）
+async function executeQueryPlan(plan: any, tableInfo: any): Promise<any[]> {
+  const { table, fieldIds } = tableInfo;
+  
+  console.log(`🎯 查询策略: 获取 ${plan.limit} 条数据的所有详细字段（优先命中内存缓存）`);
+  
+  // 首次查询时，拉取全表并写入缓存；后续只复用缓存
+  if (!cachedFullData) {
+    console.log('⚡ 首次查询，开始全量拉取并构建缓存...');
+    cachedFullData = await loadAllDataForCache(table, fieldIds);
+  } else {
+    console.log(`⚡ 命中内存缓存，全量记录数: ${cachedFullData.length}`);
+  }
+  
+  // 基于缓存数据做筛选/排序，避免修改原数组
+  let filteredData = [...cachedFullData];
   
   if (plan.filterCategory) {
     filteredData = filteredData.filter(item => 
@@ -1121,14 +1168,23 @@ ${question}`;
   return await callMoonshotAPI(prompt, signal);
 }
 
-// 调用 Moonshot (Kimi) API（使用配置中的 apiUrl / apiKey）
+// 将配置中的 API 地址（可为 base_url）解析为完整的 chat/completions 地址，兼容 OpenAI / DeepSeek / GLM / Moonshot
+function resolveChatUrl(rawUrl: string): string {
+  const base = (rawUrl || '').trim().replace(/\/+$/, '');
+  if (!base) return MOONSHOT_API_URL;
+  if (/\/chat\/completions$/i.test(base)) return base;
+  return base + '/chat/completions';
+}
+
+// 调用大模型 API（使用配置中的 apiUrl / apiKey，兼容 OpenAI 风格各厂商）
 async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<string> {
   try {
     const { apiUrl, apiKey } = currentApiConfig;
     if (!apiKey) {
       throw new Error('请先在插件配置中填写 API Key（配置插件 → 右侧填写 API 地址和 API Key → 确定）');
     }
-    console.log('📡 调用 API:', apiUrl);
+    const finalUrl = resolveChatUrl(apiUrl);
+    console.log('📡 调用 API:', finalUrl);
     console.log('📡 模型:', currentApiConfig.model);
     
     // 创建超时控制器
@@ -1144,7 +1200,7 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
       });
     }
     
-    const response = await fetch(apiUrl, {
+    const response = await fetch(finalUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1214,7 +1270,7 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
 
     return 'AI 已成功响应，但本次未返回可读文本内容，请稍后重试或换个问法。';
   } catch (error: any) {
-    console.error('Moonshot API 调用失败:', error);
+    console.error('API 调用失败:', error);
     
     // 提供更详细的错误信息
     if (error.name === 'AbortError') {
@@ -1222,7 +1278,7 @@ async function callMoonshotAPI(prompt: string, signal?: AbortSignal): Promise<st
     } else if (error.message?.includes('Failed to fetch') || error.message?.includes('ERR_CONNECTION_CLOSED')) {
       throw new Error('网络连接失败，请检查网络或 API 服务是否可用');
     } else {
-      throw new Error(`API 调用失败: ${error?.message || error}`);
+      throw new Error(`API 调用失败: ${error?.message || '未知错误'}`);
     }
   }
 }
